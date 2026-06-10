@@ -1,0 +1,471 @@
+<?php
+
+class Content_Studio_Storage
+{
+    public static function save($content)
+    {
+        $articles = self::extract_articles($content);
+        $saved = 0;
+
+        foreach ($articles as $article) {
+            if (!is_array($article)) {
+                continue;
+            }
+
+            $external_id = self::get_article_external_id($article);
+            $title = isset($article['title']) ? sanitize_text_field($article['title']) : '';
+
+            if (empty($external_id) || empty($title)) {
+                continue;
+            }
+
+            if (self::save_article($external_id, $article)) {
+                $saved++;
+            }
+        }
+
+        return $saved;
+    }
+
+    public static function get()
+    {
+        $posts = get_posts([
+            'post_type' => 'post',
+            'post_status' => ['publish', 'draft', 'pending', 'future', 'private'],
+            'posts_per_page' => -1,
+            'orderby' => 'date',
+            'order' => 'DESC',
+            'meta_query' => [
+                [
+                    'key' => '_content_studio_external_id',
+                    'compare' => 'EXISTS',
+                ],
+            ],
+        ]);
+
+        return array_map([self::class, 'format_post'], $posts);
+    }
+
+
+    public static function count_posts()
+    {
+        $query = new WP_Query([
+            'post_type' => 'post',
+            'posts_per_page' => 1,
+            'fields' => 'ids',
+            'no_found_rows' => false,
+            'meta_query' => [
+                [
+                    'key' => '_content_studio_external_id',
+                    'compare' => 'EXISTS',
+                ],
+            ],
+        ]);
+
+        return (int) $query->found_posts;
+    }
+
+    public static function get_fallback_author_id()
+    {
+        $user_id = absint(get_option('content_studio_fallback_author_id', 0));
+
+        if ($user_id && get_user_by('id', $user_id)) {
+            return $user_id;
+        }
+
+        $legacy_author_name = trim((string) get_option('content_studio_fallback_author_name', ''));
+
+        if ('' !== $legacy_author_name) {
+            $legacy_user_id = self::get_author_id_by_name($legacy_author_name, false);
+
+            if ($legacy_user_id) {
+                update_option('content_studio_fallback_author_id', $legacy_user_id);
+                return $legacy_user_id;
+            }
+        }
+
+        $content_studio_user_id = self::get_content_studio_user_id();
+        update_option('content_studio_fallback_author_id', $content_studio_user_id);
+
+        return $content_studio_user_id;
+    }
+
+    public static function get_content_studio_user_id()
+    {
+        return self::get_author_id_by_name('Content Studio', true);
+    }
+
+    private static function extract_articles($content)
+    {
+        if (!is_array($content)) {
+            return [];
+        }
+
+        if (isset($content['articles']) && is_array($content['articles'])) {
+            return $content['articles'];
+        }
+
+        if (isset($content['data']) && is_array($content['data'])) {
+            return $content['data'];
+        }
+
+        return array_values($content) === $content ? $content : [];
+    }
+
+    private static function save_article($external_id, $article)
+    {
+        $image_url = self::get_article_image_url($article);
+        $existing = self::get_by_external_id($external_id);
+        $post_date = self::format_datetime($article['published_at'] ?? $article['date'] ?? null);
+        $content = $article['body_html'] ?? $article['content'] ?? '';
+        $excerpt = $article['excerpt'] ?? $article['meta_description'] ?? '';
+        $author_id = self::get_author_id($article);
+        $category_id = self::get_category_id();
+
+        $post_data = [
+            'post_title' => sanitize_text_field($article['title']),
+            'post_content' => wp_kses_post($content),
+            'post_excerpt' => sanitize_textarea_field($excerpt),
+            'post_status' => self::get_post_status($article),
+            'post_type' => 'post',
+        ];
+
+        if ($author_id) {
+            $post_data['post_author'] = $author_id;
+        }
+
+        if ($category_id) {
+            $post_data['post_category'] = [$category_id];
+        }
+
+        if (!empty($article['slug'])) {
+            $post_data['post_name'] = sanitize_title($article['slug']);
+        }
+
+        if ($post_date) {
+            $post_data['post_date_gmt'] = $post_date;
+            $post_data['post_date'] = get_date_from_gmt($post_date);
+        }
+
+        if ($existing) {
+            $post_data['ID'] = $existing->ID;
+            $post_id = wp_update_post($post_data, true);
+        } else {
+            $post_id = wp_insert_post($post_data, true);
+        }
+
+        if (is_wp_error($post_id)) {
+            return false;
+        }
+
+        update_post_meta($post_id, '_content_studio_external_id', $external_id);
+        update_post_meta($post_id, '_content_studio_image_url', esc_url_raw($image_url));
+        update_post_meta($post_id, '_content_studio_published_at', sanitize_text_field((string) ($article['published_at'] ?? '')));
+        update_post_meta($post_id, '_content_studio_date', sanitize_text_field((string) ($article['date'] ?? '')));
+        update_post_meta($post_id, '_content_studio_raw_payload', wp_json_encode($article));
+        self::save_article_meta($post_id, $article);
+
+        self::maybe_import_featured_image($post_id, $image_url, $article);
+
+        return true;
+    }
+
+    private static function get_post_status($article)
+    {
+        if (!isset($article['status'])) {
+            return 'publish';
+        }
+
+        return 'approved' === $article['status'] ? 'publish' : 'draft';
+    }
+
+    private static function get_category_id()
+    {
+        $category_name = trim((string) get_option('content_studio_category_name', ''));
+
+        if ('' === $category_name) {
+            $category_name = self::get_default_category_name();
+        }
+
+        $term = term_exists($category_name, 'category');
+
+        if ($term) {
+            return (int) (is_array($term) ? $term['term_id'] : $term);
+        }
+
+        $term = wp_insert_term($category_name, 'category', [
+            'slug' => sanitize_title($category_name),
+        ]);
+
+        if (is_wp_error($term)) {
+            return (int) get_option('default_category');
+        }
+
+        return (int) $term['term_id'];
+    }
+
+    public static function get_default_category_name()
+    {
+        return 0 === strpos(get_locale(), 'nl_') ? 'Artikelen' : 'Articles';
+    }
+
+    private static function get_author_id($article)
+    {
+        if (empty($article['author_name'])) {
+            return self::get_fallback_author_id();
+        }
+
+        return self::get_author_id_by_name($article['author_name'], true);
+    }
+
+    private static function get_author_id_by_name($author_name, $create)
+    {
+        if (empty($author_name)) {
+            return 0;
+        }
+
+        $author_name = sanitize_text_field($author_name);
+        $user = get_user_by('login', sanitize_user($author_name));
+
+        if (!$user) {
+            $users = get_users([
+                'search' => $author_name,
+                'search_columns' => ['display_name'],
+                'number' => 1,
+            ]);
+
+            $user = $users ? $users[0] : null;
+        }
+
+        if ($user) {
+            return (int) $user->ID;
+        }
+
+        if (!$create) {
+            return 0;
+        }
+
+        $user_id = wp_insert_user([
+            'user_login' => self::get_unique_author_login($author_name),
+            'user_pass' => wp_generate_password(32, true, true),
+            'display_name' => $author_name,
+            'nickname' => $author_name,
+            'role' => 'author',
+        ]);
+
+        if (is_wp_error($user_id)) {
+            return 0;
+        }
+
+        return (int) $user_id;
+    }
+
+    private static function get_unique_author_login($author_name)
+    {
+        $base = sanitize_user(strtolower(remove_accents(str_replace(' ', '.', $author_name))), true);
+
+        if (empty($base)) {
+            $base = 'content-studio-author';
+        }
+
+        $login = $base;
+        $suffix = 2;
+
+        while (username_exists($login)) {
+            $login = $base . '-' . $suffix;
+            $suffix++;
+        }
+
+        return $login;
+    }
+
+    private static function save_article_meta($post_id, $article)
+    {
+        $meta_keys = [
+            'type',
+            'channel',
+            'status',
+            'content_type',
+            'cluster_key',
+            'locale',
+            'primary_keyword',
+            'meta_description',
+            'seo_title',
+            'og_title',
+            'og_description',
+            'twitter_title',
+            'twitter_description',
+            'featured_image_alt',
+            'funnel_stage',
+            'intent',
+            'angle',
+            'author_name',
+            'author_role_title',
+            'author_experience_label',
+            'author_experience_summary',
+            'author_article_relevance',
+            'author_boundary_note',
+            'source_month',
+            'planned_at',
+            'generated_at',
+            'content_hash',
+            'updated_at',
+        ];
+
+        foreach ($meta_keys as $key) {
+            if (!array_key_exists($key, $article)) {
+                continue;
+            }
+
+            $value = is_scalar($article[$key]) || null === $article[$key]
+                ? sanitize_text_field((string) $article[$key])
+                : wp_json_encode($article[$key]);
+
+            update_post_meta($post_id, '_content_studio_' . $key, $value);
+        }
+    }
+
+    private static function get_by_external_id($external_id)
+    {
+        $posts = get_posts([
+            'post_type' => 'post',
+            'post_status' => 'any',
+            'posts_per_page' => 1,
+            'fields' => 'all',
+            'meta_key' => '_content_studio_external_id',
+            'meta_value' => $external_id,
+        ]);
+
+        return $posts ? $posts[0] : null;
+    }
+
+    private static function maybe_import_featured_image($post_id, $image_url, $article)
+    {
+        if (!$image_url) {
+            return;
+        }
+
+        $existing_image_url = get_post_meta($post_id, '_content_studio_imported_image_url', true);
+
+        if ($existing_image_url === $image_url && has_post_thumbnail($post_id)) {
+            self::set_attachment_author(get_post_thumbnail_id($post_id));
+            return;
+        }
+
+        $attachment_id = self::import_image($image_url, $article['title'], $post_id);
+
+        if (!$attachment_id) {
+            return;
+        }
+
+        if (!empty($article['featured_image_alt'])) {
+            update_post_meta($attachment_id, '_wp_attachment_image_alt', sanitize_text_field($article['featured_image_alt']));
+        }
+
+        set_post_thumbnail($post_id, $attachment_id);
+        update_post_meta($post_id, '_content_studio_imported_image_url', esc_url_raw($image_url));
+    }
+
+    private static function get_article_external_id($article)
+    {
+        foreach (['id', 'uuid', 'slug'] as $key) {
+            if (!empty($article[$key])) {
+                return sanitize_text_field((string) $article[$key]);
+            }
+        }
+
+        return '';
+    }
+
+    private static function get_article_image_url($article)
+    {
+        foreach (['featured_image_url', 'image', 'image_url', 'featured_image'] as $key) {
+            if (empty($article[$key])) {
+                continue;
+            }
+
+            if (is_string($article[$key])) {
+                return $article[$key];
+            }
+
+            if (is_array($article[$key]) && !empty($article[$key]['url'])) {
+                return $article[$key]['url'];
+            }
+        }
+
+        return '';
+    }
+
+    private static function import_image($image_url, $title, $post_id)
+    {
+        if (!$image_url) {
+            return 0;
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+
+        $attachment_id = media_sideload_image($image_url, $post_id, $title, 'id');
+
+        if (is_wp_error($attachment_id)) {
+            update_post_meta($post_id, '_content_studio_image_import_error', $attachment_id->get_error_message());
+            return 0;
+        }
+
+        delete_post_meta($post_id, '_content_studio_image_import_error');
+        self::set_attachment_author($attachment_id);
+
+        return absint($attachment_id);
+    }
+
+    private static function set_attachment_author($attachment_id)
+    {
+        $attachment_id = absint($attachment_id);
+
+        if (!$attachment_id) {
+            return;
+        }
+
+        $author_id = self::get_content_studio_user_id();
+
+        if (!$author_id) {
+            return;
+        }
+
+        wp_update_post([
+            'ID' => $attachment_id,
+            'post_author' => $author_id,
+        ]);
+    }
+
+    private static function format_post($post)
+    {
+        return [
+            'id' => $post->ID,
+            'external_id' => get_post_meta($post->ID, '_content_studio_external_id', true),
+            'title' => get_the_title($post),
+            'content' => apply_filters('the_content', $post->post_content),
+            'excerpt' => $post->post_excerpt,
+            'image_url' => get_post_meta($post->ID, '_content_studio_image_url', true),
+            'image_attachment_id' => get_post_thumbnail_id($post->ID),
+            'published_at' => $post->post_date_gmt,
+            'link' => get_permalink($post),
+        ];
+    }
+
+    private static function format_datetime($value)
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        $timestamp = strtotime($value);
+
+        if (!$timestamp) {
+            return null;
+        }
+
+        return gmdate('Y-m-d H:i:s', $timestamp);
+    }
+}
