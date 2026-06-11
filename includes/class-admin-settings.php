@@ -7,6 +7,7 @@ class Content_Studio_Admin_Settings
         add_action('admin_menu', [$this, 'add_settings_page']);
         add_action('admin_init', [$this, 'register_settings']);
         add_action('admin_post_content_studio_sync', [$this, 'sync_articles']);
+        add_action('admin_post_content_studio_reset_style_settings', [$this, 'reset_style_settings']);
     }
 
     public function add_settings_page()
@@ -72,16 +73,6 @@ class Content_Studio_Admin_Settings
                     'default' => '',
                 ]
             );
-
-            register_setting(
-                'content_studio_settings',
-                $setting['use_theme_option'],
-                [
-                    'type' => 'boolean',
-                    'sanitize_callback' => [$this, 'sanitize_theme_color_toggle'],
-                    'default' => true,
-                ]
-            );
         }
 
         foreach (content_studio_get_style_range_settings() as $option_name => $setting) {
@@ -89,7 +80,7 @@ class Content_Studio_Admin_Settings
                 'content_studio_settings',
                 $option_name,
                 [
-                    'type' => 'integer',
+                    'type' => isset($setting['type']) && 'float' === $setting['type'] ? 'number' : 'integer',
                     'sanitize_callback' => function ($value) use ($setting) {
                         return $this->sanitize_range($value, $setting);
                     },
@@ -153,7 +144,6 @@ class Content_Studio_Admin_Settings
                 'content_studio_style_section',
                 [
                     'option_name' => $option_name,
-                    'use_theme_option' => $setting['use_theme_option'],
                     'css_variable' => $setting['css_variable'],
                     'default' => isset($setting['default']) ? $setting['default'] : '',
                     'description' => $setting['description'],
@@ -161,10 +151,49 @@ class Content_Studio_Admin_Settings
             );
         }
 
+        $advanced_rounding_field_added = false;
+        $advanced_font_size_field_added = false;
+        $advanced_line_height_field_added = false;
         $advanced_spacing_field_added = false;
 
         foreach (content_studio_get_style_range_settings() as $option_name => $setting) {
-            if (!empty($setting['advanced']) && !$advanced_spacing_field_added) {
+            if (isset($setting['advanced_group']) && 'rounding' === $setting['advanced_group'] && !$advanced_rounding_field_added) {
+                add_settings_field(
+                    'content_studio_advanced_rounding_toggle',
+                    '',
+                    [$this, 'render_advanced_rounding_toggle'],
+                    'content-studio',
+                    'content_studio_style_section'
+                );
+
+                $advanced_rounding_field_added = true;
+            }
+
+            if (isset($setting['advanced_group']) && 'font-size' === $setting['advanced_group'] && !$advanced_font_size_field_added) {
+                add_settings_field(
+                    'content_studio_advanced_font_size_toggle',
+                    '',
+                    [$this, 'render_advanced_font_size_toggle'],
+                    'content-studio',
+                    'content_studio_style_section'
+                );
+
+                $advanced_font_size_field_added = true;
+            }
+
+            if (isset($setting['advanced_group']) && 'line-height' === $setting['advanced_group'] && !$advanced_line_height_field_added) {
+                add_settings_field(
+                    'content_studio_advanced_line_height_toggle',
+                    '',
+                    [$this, 'render_advanced_line_height_toggle'],
+                    'content-studio',
+                    'content_studio_style_section'
+                );
+
+                $advanced_line_height_field_added = true;
+            }
+
+            if (isset($setting['advanced_group']) && 'spacing' === $setting['advanced_group'] && !$advanced_spacing_field_added) {
                 add_settings_field(
                     'content_studio_advanced_spacing_toggle',
                     '',
@@ -190,8 +219,9 @@ class Content_Studio_Admin_Settings
                     'max' => $setting['max'],
                     'step' => $setting['step'],
                     'unit' => $setting['unit'],
+                    'type' => isset($setting['type']) ? $setting['type'] : 'int',
                     'description' => $setting['description'],
-                    'class' => !empty($setting['advanced']) ? 'content-studio-advanced-spacing-row' : '',
+                    'class' => isset($setting['advanced_group']) ? 'content-studio-advanced-' . $setting['advanced_group'] . '-row' : '',
                 ]
             );
         }
@@ -239,24 +269,21 @@ class Content_Studio_Admin_Settings
 
     public function render_style_section()
     {
-        echo '<p>Enable theme colors to use the active theme when possible. Disable it to use the selected color, or the plugin default when the picker is empty.</p>';
+        echo '<p>Use the controls below to style generated article cards.</p>';
     }
 
     public function render_color_field($args)
     {
         $option_name = $args['option_name'];
-        $use_theme_option = $args['use_theme_option'];
         $css_variable = $args['css_variable'];
         $default = $args['default'];
         $description = $args['description'];
-        $use_theme = get_option($use_theme_option, '1');
+        $value = get_option($option_name, $default);
 
         printf(
-            '<span class="content-studio-style-field" data-css-variable="%6$s" data-fallback-color="%7$s"><input type="text" name="%1$s" value="%2$s" class="content-studio-color-picker" data-default-color="" /><label><input type="hidden" name="%3$s" value="0" /><input type="checkbox" name="%3$s" value="1" %4$s /> Use theme color</label></span><p class="description">%5$s</p>',
+            '<span class="content-studio-style-field" data-css-variable="%4$s" data-fallback-color="%5$s"><input type="text" name="%1$s" value="%2$s" class="content-studio-color-picker" data-default-color="" /></span><p class="description">%3$s</p>',
             esc_attr($option_name),
-            esc_attr(get_option($option_name, '')),
-            esc_attr($use_theme_option),
-            checked($use_theme, true, false),
+            esc_attr($value),
             esc_html($description),
             esc_attr($css_variable),
             esc_attr($default)
@@ -266,26 +293,42 @@ class Content_Studio_Admin_Settings
     public function render_range_field($args)
     {
         $option_name = $args['option_name'];
-        $value = absint(get_option($option_name, $args['default']));
+        $is_float = isset($args['type']) && 'float' === $args['type'];
+        $value = $is_float ? (float) get_option($option_name, $args['default']) : absint(get_option($option_name, $args['default']));
         $value = max($args['min'], min($args['max'], $value));
 
         printf(
-            '<span class="content-studio-range-field" data-css-variable="%6$s" data-unit="%7$s" data-default-value="%9$d"><input type="range" name="%1$s" value="%2$d" min="%3$d" max="%4$d" step="%5$d" /><output>%2$d%7$s</output></span><p class="description">%8$s</p>',
+            '<span class="content-studio-range-field" data-css-variable="%6$s" data-unit="%7$s" data-default-value="%9$s"><input type="range" name="%1$s" value="%2$s" min="%3$s" max="%4$s" step="%5$s" /><output>%2$s%7$s</output></span><p class="description">%8$s</p>',
             esc_attr($option_name),
-            $value,
-            absint($args['min']),
-            absint($args['max']),
-            absint($args['step']),
+            esc_attr($value),
+            esc_attr($args['min']),
+            esc_attr($args['max']),
+            esc_attr($args['step']),
             esc_attr($args['css_variable']),
             esc_html($args['unit']),
             esc_html($args['description']),
-            absint($args['default'])
+            esc_attr($args['default'])
         );
     }
 
     public function render_advanced_spacing_toggle()
     {
-        echo '<button type="button" class="button content-studio-advanced-spacing-toggle" aria-expanded="false">Advanced spacing</button>';
+        echo '<label class="content-studio-advanced-spacing-toggle"><input type="checkbox" class="content-studio-advanced-spacing-toggle__checkbox" /> Advanced spacing</label>';
+    }
+
+    public function render_advanced_rounding_toggle()
+    {
+        echo '<label class="content-studio-advanced-rounding-toggle"><input type="checkbox" class="content-studio-advanced-rounding-toggle__checkbox" /> Advanced rounding</label>';
+    }
+
+    public function render_advanced_font_size_toggle()
+    {
+        echo '<label class="content-studio-advanced-font-size-toggle"><input type="checkbox" class="content-studio-advanced-font-size-toggle__checkbox" /> Advanced font sizing</label>';
+    }
+
+    public function render_advanced_line_height_toggle()
+    {
+        echo '<label class="content-studio-advanced-line-height-toggle"><input type="checkbox" class="content-studio-advanced-line-height-toggle__checkbox" /> Advanced line height</label>';
     }
 
     public function sanitize_fallback_author_id($user_id)
@@ -306,14 +349,9 @@ class Content_Studio_Admin_Settings
         return sanitize_hex_color($color) ?: '';
     }
 
-    public function sanitize_theme_color_toggle($enabled)
-    {
-        return (bool) $enabled;
-    }
-
     public function sanitize_range($value, $setting)
     {
-        $value = absint($value);
+        $value = isset($setting['type']) && 'float' === $setting['type'] ? (float) $value : absint($value);
 
         return max($setting['min'], min($setting['max'], $value));
     }
@@ -324,10 +362,16 @@ class Content_Studio_Admin_Settings
             return;
         }
 
+        $reset_result = isset($_GET['content_studio_reset']) ? sanitize_text_field(wp_unslash($_GET['content_studio_reset'])) : '';
         $sync_result = isset($_GET['content_studio_sync']) ? sanitize_text_field(wp_unslash($_GET['content_studio_sync'])) : '';
         $notice = null;
 
-        if ('success' === $sync_result) {
+        if ('success' === $reset_result) {
+            $notice = [
+                'type' => 'success',
+                'message' => 'Style settings reset to defaults.',
+            ];
+        } elseif ('success' === $sync_result) {
             $saved = isset($_GET['saved']) ? absint($_GET['saved']) : 0;
             $notice = [
                 'type' => 'success',
@@ -344,6 +388,32 @@ class Content_Studio_Admin_Settings
         $count = Content_Studio_Storage::count_posts();
 
         require plugin_dir_path(CONTENT_STUDIO_PLUGIN_FILE) . 'views/admin-settings.php';
+    }
+
+    public function reset_style_settings()
+    {
+        if (!current_user_can('manage_options')) {
+            wp_die('Sorry, you are not allowed to reset Content Studio settings.');
+        }
+
+        check_admin_referer('content_studio_reset_style_settings');
+
+        foreach (content_studio_get_style_color_settings() as $option_name => $setting) {
+            delete_option($option_name);
+        }
+
+        foreach (content_studio_get_style_range_settings() as $option_name => $setting) {
+            delete_option($option_name);
+        }
+
+        wp_safe_redirect(
+            add_query_arg(
+                'content_studio_reset',
+                'success',
+                admin_url('options-general.php?page=content-studio')
+            )
+        );
+        exit;
     }
 
     public function sync_articles()

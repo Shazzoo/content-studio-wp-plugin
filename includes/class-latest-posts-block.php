@@ -94,38 +94,22 @@ class Content_Studio_Latest_Posts_Block
 
     private static function render_card($attributes)
     {
-?>
-        <article <?php post_class('content-studio-blog__article'); ?>>
-            <?php if (!empty($attributes['showImage'])) : ?>
-                <?php if (has_post_thumbnail()) : ?>
-                    <a class="content-studio-blog__image-link" href="<?php the_permalink(); ?>">
-                        <?php the_post_thumbnail('large', ['class' => 'content-studio-blog__image']); ?>
-                    </a>
-                <?php else : ?>
-                    <a class="content-studio-blog__image-link content-studio-blog__image-placeholder" href="<?php the_permalink(); ?>" aria-label="<?php the_title_attribute(); ?>">
-                        <span>Content Studio</span>
-                    </a>
-                <?php endif; ?>
-            <?php endif; ?>
+        $card = [
+            'article_classes' => implode(' ', get_post_class('content-studio-blog__article')),
+            'show_image' => !empty($attributes['showImage']),
+            'image_html' => has_post_thumbnail() ? get_the_post_thumbnail(null, 'large', ['class' => 'content-studio-blog__image']) : '',
+            'image_url' => get_permalink(),
+            'image_label' => get_the_title(),
+            'show_title' => true,
+            'title' => get_the_title(),
+            'title_url' => get_permalink(),
+            'show_meta' => !empty($attributes['showMeta']),
+            'meta_items' => [self::get_api_date(), self::get_read_time()],
+            'show_excerpt' => !empty($attributes['showExcerpt']),
+            'excerpt' => self::get_excerpt(),
+        ];
 
-            <h2 class="content-studio-blog__article-title">
-                <a class="content-studio-blog__article-link" href="<?php the_permalink(); ?>"><?php the_title(); ?></a>
-            </h2>
-
-            <?php if (!empty($attributes['showMeta'])) : ?>
-                <div class="content-studio-blog__meta">
-                    <span><?php echo esc_html(self::get_api_date()); ?></span>
-                    <span><?php echo esc_html(self::get_read_time()); ?></span>
-                </div>
-            <?php endif; ?>
-
-            <?php if (!empty($attributes['showExcerpt'])) : ?>
-                <div class="content-studio-blog__excerpt">
-                    <p><?php echo esc_html(self::get_excerpt()); ?></p>
-                </div>
-            <?php endif; ?>
-        </article>
-<?php
+        require plugin_dir_path(CONTENT_STUDIO_PLUGIN_FILE) . 'views/article-card.php';
     }
 
     private static function get_posts($posts_to_show)
