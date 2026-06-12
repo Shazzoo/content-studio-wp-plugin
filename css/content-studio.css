@@ -269,9 +269,9 @@
   .button.content-studio-button:not(.content-studio-button--secondary):not(
     .content-studio-button--icon
   ) {
-  background: var(--_content-studio-color-primary);
-  border-color: var(--_content-studio-color-primary);
-  color: var(--_content-studio-color-button-text);
+  background: #ec8f39 !important;
+  border-color: #ec8f39 !important;
+  color: #ffffff !important;
 }
 
 .wp-core-ui .button-primary.content-studio-button:hover,
@@ -289,9 +289,9 @@
   .button.content-studio-button:not(.content-studio-button--secondary):not(
     .content-studio-button--icon
   ):active {
-  background: var(--_content-studio-color-primary-hover);
-  border-color: var(--_content-studio-color-primary-hover);
-  color: var(--_content-studio-color-button-text);
+  background: #d97619 !important;
+  border-color: #d97619 !important;
+  color: #ffffff !important;
 }
 
 .wp-core-ui .button-primary.content-studio-button:focus,
@@ -305,8 +305,8 @@
 
 .wp-core-ui .button.content-studio-button.content-studio-button--secondary {
   background: transparent !important;
-  border-color: var(--_content-studio-color-primary) !important;
-  color: var(--_content-studio-color-button-secondary-text) !important;
+  border-color: #ec8f39 !important;
+  color: #ec8f39 !important;
 }
 
 .wp-core-ui
@@ -330,8 +330,8 @@
 .content-studio-button--icon,
 .wp-core-ui .button.content-studio-button--icon {
   background: transparent !important;
-  border-color: var(--_content-studio-color-primary) !important;
-  color: var(--_content-studio-color-primary) !important;
+  border-color: #ec8f39 !important;
+  color: #ec8f39 !important;
   display: inline-flex;
   align-items: center;
   justify-content: center;
