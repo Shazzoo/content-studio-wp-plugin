@@ -45,6 +45,16 @@ class Content_Studio_Admin_Settings
 
         register_setting(
             'content_studio_settings',
+            'content_studio_article_locale',
+            [
+                'type' => 'string',
+                'sanitize_callback' => [$this, 'sanitize_article_locale'],
+                'default' => '',
+            ]
+        );
+
+        register_setting(
+            'content_studio_settings',
             'content_studio_category_name',
             [
                 'type' => 'string',
@@ -108,6 +118,14 @@ class Content_Studio_Admin_Settings
             'content_studio_project_id',
             'Project ID',
             [$this, 'render_project_id_field'],
+            'content-studio',
+            'content_studio_api_section'
+        );
+
+        add_settings_field(
+            'content_studio_article_locale',
+            'Article Language',
+            [$this, 'render_article_locale_field'],
             'content-studio',
             'content_studio_api_section'
         );
@@ -241,6 +259,60 @@ class Content_Studio_Admin_Settings
             '<input type="text" name="content_studio_project_id" value="%s" class="regular-text" />',
             esc_attr(get_option('content_studio_project_id', ''))
         );
+    }
+
+    public function render_article_locale_field()
+    {
+        $selected = (string) get_option('content_studio_article_locale', '');
+        $primary = Content_Studio_Language::primary_locale();
+        $source = Content_Studio_Language::primary_locale_source();
+        $available = Content_Studio_Storage::get_available_locales();
+
+        $source_label = [
+            'engine' => 'from Content Studio',
+            'articles' => 'most common in synced articles',
+            'site' => 'site language',
+        ][$source];
+
+        $choices = [
+            '' => sprintf('Default: %s (%s)', strtoupper($primary ?: 'unknown'), $source_label),
+        ];
+
+        foreach ($available as $locale) {
+            $choices[$locale] = strtoupper($locale);
+        }
+
+        $choices['all'] = 'All languages';
+
+        echo '<select name="content_studio_article_locale" id="content_studio_article_locale" class="regular-text">';
+
+        foreach ($choices as $value => $label) {
+            printf(
+                '<option value="%s"%s>%s</option>',
+                esc_attr($value),
+                selected($selected, $value, false),
+                esc_html($label)
+            );
+        }
+
+        echo '</select>';
+
+        echo '<p class="description">Which language to show on the blog and in the Latest Posts block. Articles in other languages stay synced but are reached through their own /{lang}/blog URL.</p>';
+
+        if ('engine' !== $source) {
+            echo '<p class="description">Content Studio has not sent this project\'s primary language yet, so the default above is inferred.</p>';
+        }
+    }
+
+    public function sanitize_article_locale($value)
+    {
+        $value = trim((string) $value);
+
+        if ('' === $value || 'all' === $value) {
+            return $value;
+        }
+
+        return Content_Studio_Storage::normalize_locale($value);
     }
 
     public function render_category_field()

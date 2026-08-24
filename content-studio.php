@@ -15,7 +15,7 @@ if (!defined('CONTENT_STUDIO_API_ROUTE')) {
 }
 
 define('CONTENT_STUDIO_PLUGIN_FILE', __FILE__);
-define('CONTENT_STUDIO_REWRITE_VERSION', '2');
+define('CONTENT_STUDIO_REWRITE_VERSION', '3');
 define('CONTENT_STUDIO_SYNC_CRON_EVENT', 'content_studio_sync_articles');
 
 function content_studio_enqueue_styles($include_custom_styles = true)
@@ -350,12 +350,14 @@ add_action('wp_enqueue_scripts', 'content_studio_enqueue_styles');
 add_action('admin_enqueue_scripts', 'content_studio_enqueue_admin_styles');
 add_action('init', 'content_studio_schedule_sync');
 
+require_once plugin_dir_path(__FILE__) . 'includes/class-language.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-api-client.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-storage.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-rest-routes.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-admin-settings.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-latest-posts-block.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-blog-route.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-publish-confirmation.php';
 
 register_activation_hook(__FILE__, ['Content_Studio_Blog_Route', 'activate']);
 register_activation_hook(__FILE__, 'content_studio_schedule_sync');
@@ -367,3 +369,4 @@ new Content_Studio_REST_Routes();
 new Content_Studio_Admin_Settings();
 new Content_Studio_Latest_Posts_Block();
 new Content_Studio_Blog_Route();
+new Content_Studio_Publish_Confirmation();

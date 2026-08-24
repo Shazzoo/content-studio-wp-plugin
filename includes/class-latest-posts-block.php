@@ -120,12 +120,7 @@ class Content_Studio_Latest_Posts_Block
             'posts_per_page' => max(1, min(12, $posts_to_show)),
             'orderby' => 'date',
             'order' => 'DESC',
-            'meta_query' => [
-                [
-                    'key' => '_content_studio_external_id',
-                    'compare' => 'EXISTS',
-                ],
-            ],
+            'meta_query' => Content_Studio_Storage::article_meta_query(),
         ]);
     }
 

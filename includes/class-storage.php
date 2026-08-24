@@ -2,8 +2,18 @@
 
 class Content_Studio_Storage
 {
+    /**
+     * Only content the editors signed off on belongs on the site. 'published'
+     * is part of that set: the Engine moves content to it as soon as we
+     * confirm publication, so leaving it out would make every confirmed
+     * article fall out of sync again on the next run.
+     */
+    const SYNCABLE_STATUSES = ['approved', 'published'];
+
     public static function save($content)
     {
+        self::maybe_store_primary_locale($content);
+
         $articles = self::extract_articles($content);
         $saved = 0;
 
@@ -35,15 +45,71 @@ class Content_Studio_Storage
             'posts_per_page' => -1,
             'orderby' => 'date',
             'order' => 'DESC',
-            'meta_query' => [
-                [
-                    'key' => '_content_studio_external_id',
-                    'compare' => 'EXISTS',
-                ],
-            ],
+            'meta_query' => self::article_meta_query(),
         ]);
 
         return array_map([self::class, 'format_post'], $posts);
+    }
+
+    /**
+     * Meta query matching synced articles, narrowed to one language unless the
+     * site is configured to show every language.
+     */
+    public static function article_meta_query()
+    {
+        $meta_query = [
+            [
+                'key' => '_content_studio_external_id',
+                'compare' => 'EXISTS',
+            ],
+        ];
+
+        // Polylang and WPML already narrow every query to one language; adding
+        // our filter on top would AND the two together and empty the blog.
+        if (Content_Studio_Language::owns_query_filtering()) {
+            return $meta_query;
+        }
+
+        $locale = self::get_display_locale();
+
+        if ('all' !== $locale && '' !== $locale) {
+            // Anchored so 'nl' matches 'nl', 'nl-NL' and 'nl_NL', but never
+            // an unrelated locale that merely starts with the same letters.
+            $meta_query[] = [
+                'key' => '_content_studio_locale',
+                'value' => '^' . $locale . '([-_]|$)',
+                'compare' => 'REGEXP',
+            ];
+        }
+
+        return $meta_query;
+    }
+
+    /**
+     * Which language the front end should show. Empty setting means "follow
+     * the site language"; 'all' disables filtering entirely.
+     */
+    public static function get_display_locale()
+    {
+        return Content_Studio_Language::current();
+    }
+
+    /**
+     * 'en_US' and 'en-GB' both become 'en' - the Engine sends bare language
+     * codes, while WordPress uses full locales.
+     */
+    public static function normalize_locale($locale)
+    {
+        return Content_Studio_Language::normalize($locale);
+    }
+
+    /**
+     * The languages actually present in the synced articles, for the settings
+     * dropdown.
+     */
+    public static function get_available_locales()
+    {
+        return Content_Studio_Language::available();
     }
 
 
@@ -95,6 +161,35 @@ class Content_Studio_Storage
         return self::get_author_id_by_name('Content Studio', true);
     }
 
+    /**
+     * The Engine knows each project's primary_locale but does not expose it on
+     * the contents endpoint yet. This picks it up automatically if that ever
+     * changes, from either the payload root or its meta block.
+     */
+    private static function maybe_store_primary_locale($content)
+    {
+        $project = Content_Studio_API_Client::fetch_project(true);
+
+        if (is_wp_error($project)) {
+            return;
+        }
+
+        $primary = Content_Studio_Language::normalize((string) ($project['primary_locale'] ?? ''));
+
+        if ('' !== $primary && get_option('content_studio_engine_primary_locale', '') !== $primary) {
+            update_option('content_studio_engine_primary_locale', $primary);
+        }
+
+        $locales = array_values(array_filter(array_map(
+            [Content_Studio_Language::class, 'normalize'],
+            (array) ($project['locales'] ?? [])
+        )));
+
+        if ([] !== $locales) {
+            update_option('content_studio_engine_locales', $locales);
+        }
+    }
+
     private static function extract_articles($content)
     {
         if (!is_array($content)) {
@@ -116,6 +211,14 @@ class Content_Studio_Storage
     {
         $image_url = self::get_article_image_url($article);
         $existing = self::get_by_external_id($external_id);
+
+        // Unapproved content is never imported. An article that is already
+        // here does get updated, so withdrawing approval in the Engine sends
+        // the post back to draft rather than leaving it live.
+        if (!$existing && !self::is_syncable($article)) {
+            return false;
+        }
+
         $post_date = self::format_datetime($article['published_at'] ?? $article['date'] ?? null);
         $content = $article['body_html'] ?? $article['content'] ?? '';
         $excerpt = $article['excerpt'] ?? $article['meta_description'] ?? '';
@@ -165,7 +268,13 @@ class Content_Studio_Storage
         update_post_meta($post_id, '_content_studio_raw_payload', wp_json_encode($article));
         self::save_article_meta($post_id, $article);
 
+        Content_Studio_Language::assign_post_language($post_id, $article['locale'] ?? '', $article['cluster_key'] ?? '');
+
         self::maybe_import_featured_image($post_id, $image_url, $article);
+
+        // The external ID is only available now, so a post created in this
+        // request could not be confirmed from transition_post_status yet.
+        Content_Studio_Publish_Confirmation::maybe_confirm($post_id);
 
         return true;
     }
@@ -176,7 +285,14 @@ class Content_Studio_Storage
             return 'publish';
         }
 
-        return 'approved' === $article['status'] ? 'publish' : 'draft';
+        return self::is_syncable($article) ? 'publish' : 'draft';
+    }
+
+    private static function is_syncable($article)
+    {
+        $status = isset($article['status']) ? strtolower(trim((string) $article['status'])) : '';
+
+        return in_array($status, self::SYNCABLE_STATUSES, true);
     }
 
     private static function get_category_id()
