@@ -221,9 +221,6 @@ class Content_Studio_Storage
 
         $post_date = self::format_datetime($article['published_at'] ?? $article['date'] ?? null);
         $content = $article['body_html'] ?? $article['content'] ?? '';
-        if (is_string($content)) {
-            $content = self::replace_diagram_placeholders($content, $article);
-        }
         $excerpt = $article['excerpt'] ?? $article['meta_description'] ?? '';
         $author_id = self::get_author_id($article);
         $category_id = self::get_category_id();
@@ -264,6 +261,25 @@ class Content_Studio_Storage
             return false;
         }
 
+        if (is_string($content)) {
+            $content = self::replace_diagram_placeholders(
+                $content,
+                $article,
+                static function ($image_url, $placeholder_id, $entry) use ($article, $post_id) {
+                    return self::maybe_import_diagram_image($image_url, $article, $post_id, $placeholder_id);
+                }
+            );
+
+            $content_update = wp_update_post([
+                'ID' => $post_id,
+                'post_content' => wp_kses_post($content),
+            ], true);
+
+            if (is_wp_error($content_update)) {
+                return false;
+            }
+        }
+
         update_post_meta($post_id, '_content_studio_external_id', $external_id);
         update_post_meta($post_id, '_content_studio_image_url', esc_url_raw($image_url));
         update_post_meta($post_id, '_content_studio_published_at', sanitize_text_field((string) ($article['published_at'] ?? '')));
@@ -298,9 +314,9 @@ class Content_Studio_Storage
         return in_array($status, self::SYNCABLE_STATUSES, true);
     }
 
-    private static function replace_diagram_placeholders($content, $article)
+    private static function replace_diagram_placeholders($content, $article, $image_url_resolver = null)
     {
-        $replacements = self::get_diagram_replacements($article);
+        $replacements = self::get_diagram_replacements($article, $image_url_resolver);
 
         if ([] === $replacements) {
             return $content;
@@ -317,7 +333,7 @@ class Content_Studio_Storage
         );
     }
 
-    private static function get_diagram_replacements($article)
+    private static function get_diagram_replacements($article, $image_url_resolver = null)
     {
         $replacements = [];
 
@@ -331,14 +347,14 @@ class Content_Studio_Storage
                     continue;
                 }
 
-                $replacements = array_merge($replacements, self::get_diagram_replacements_from_payload($source[$key]));
+                $replacements = array_merge($replacements, self::get_diagram_replacements_from_payload($source[$key], $image_url_resolver));
             }
 
             $id = self::get_diagram_placeholder_id($source['diagram_id'] ?? $source['diagram_uuid'] ?? null);
             $url = self::get_string_value($source['diagram_url'] ?? $source['diagram_image_url'] ?? null);
 
             if (null !== $id && null !== $url) {
-                $replacements[$id] = $url;
+                $replacements[$id] = self::get_diagram_replacement_from_url($url, null, null, $image_url_resolver, $id);
             }
         }
 
@@ -360,19 +376,19 @@ class Content_Studio_Storage
         return strtolower($matches[1]);
     }
 
-    private static function get_diagram_replacements_from_payload($payload)
+    private static function get_diagram_replacements_from_payload($payload, $image_url_resolver = null)
     {
         $replacements = [];
 
         foreach ($payload as $key => $entry) {
             if (is_string($key)) {
                 $id = self::get_diagram_placeholder_id($key);
-                $url = is_array($entry)
-                    ? self::get_diagram_replacement_from_entry($entry)
-                    : self::get_string_value($entry);
+                $replacement = is_array($entry)
+                    ? self::get_diagram_replacement_from_entry($entry, $image_url_resolver, $id)
+                    : self::get_diagram_replacement_from_url(self::get_string_value($entry), null, null, $image_url_resolver, $id);
 
-                if (null !== $id && null !== $url) {
-                    $replacements[$id] = $url;
+                if (null !== $id && null !== $replacement) {
+                    $replacements[$id] = $replacement;
                 }
 
                 continue;
@@ -383,7 +399,7 @@ class Content_Studio_Storage
             }
 
             $id = self::get_diagram_placeholder_id($entry['placeholder'] ?? $entry['id'] ?? $entry['uuid'] ?? $entry['placeholder_id'] ?? null);
-            $replacement = self::get_diagram_replacement_from_entry($entry);
+            $replacement = self::get_diagram_replacement_from_entry($entry, $image_url_resolver, $id);
 
             if (null !== $id && null !== $replacement) {
                 $replacements[$id] = $replacement;
@@ -393,7 +409,7 @@ class Content_Studio_Storage
         return $replacements;
     }
 
-    private static function get_diagram_replacement_from_entry($entry)
+    private static function get_diagram_replacement_from_entry($entry, $image_url_resolver = null, $placeholder_id = null)
     {
         $url = self::get_string_value($entry['url'] ?? $entry['image_url'] ?? $entry['diagram_url'] ?? $entry['src'] ?? null);
 
@@ -403,6 +419,19 @@ class Content_Studio_Storage
 
         $caption = self::get_string_value($entry['caption'] ?? null);
         $alt = self::get_string_value($entry['alt'] ?? null) ?? $caption;
+
+        return self::get_diagram_replacement_from_url($url, $alt, $caption, $image_url_resolver, $placeholder_id, $entry);
+    }
+
+    private static function get_diagram_replacement_from_url($url, $alt, $caption, $image_url_resolver = null, $placeholder_id = null, $entry = [])
+    {
+        if (null === $url) {
+            return null;
+        }
+
+        if (is_callable($image_url_resolver)) {
+            $url = call_user_func($image_url_resolver, $url, $placeholder_id, $entry);
+        }
 
         if (null === $caption && null === $alt) {
             return $url;
@@ -607,6 +636,99 @@ class Content_Studio_Storage
 
         set_post_thumbnail($post_id, $attachment_id);
         update_post_meta($post_id, '_content_studio_imported_image_url', esc_url_raw($image_url));
+    }
+
+    private static function maybe_import_diagram_image($image_url, $article, $post_id, $placeholder_id)
+    {
+        if (!$image_url || !filter_var($image_url, FILTER_VALIDATE_URL)) {
+            return $image_url;
+        }
+
+        $meta_suffix = $placeholder_id ?: md5($image_url);
+        $source_meta_key = '_content_studio_imported_diagram_source_url_' . $meta_suffix;
+        $local_meta_key = '_content_studio_imported_diagram_local_url_' . $meta_suffix;
+
+        $existing_source_url = get_post_meta($post_id, $source_meta_key, true);
+        $existing_local_url = get_post_meta($post_id, $local_meta_key, true);
+
+        if ($existing_source_url === $image_url && $existing_local_url) {
+            return $existing_local_url;
+        }
+
+        $local_url = self::store_diagram_file($image_url, $placeholder_id);
+
+        if (!$local_url) {
+            return $image_url;
+        }
+
+        update_post_meta($post_id, $source_meta_key, esc_url_raw($image_url));
+        update_post_meta($post_id, $local_meta_key, esc_url_raw($local_url));
+
+        return $local_url;
+    }
+
+    private static function store_diagram_file($image_url, $placeholder_id)
+    {
+        $response = wp_remote_get($image_url, [
+            'timeout' => 20,
+            'redirection' => 3,
+        ]);
+
+        if (is_wp_error($response)) {
+            return '';
+        }
+
+        $status_code = wp_remote_retrieve_response_code($response);
+
+        if ($status_code < 200 || $status_code >= 300) {
+            return '';
+        }
+
+        $body = wp_remote_retrieve_body($response);
+
+        if ('' === $body) {
+            return '';
+        }
+
+        $extension = self::get_image_extension($image_url, wp_remote_retrieve_header($response, 'content-type'));
+        $filename = sanitize_file_name(($placeholder_id ?: md5($image_url)) . '.' . $extension);
+        $upload = wp_upload_bits($filename, null, $body);
+
+        if (!empty($upload['error']) || empty($upload['url'])) {
+            return '';
+        }
+
+        return esc_url_raw($upload['url']);
+    }
+
+    private static function get_image_extension($image_url, $content_type)
+    {
+        $path = wp_parse_url($image_url, PHP_URL_PATH);
+        $extension = strtolower(pathinfo((string) $path, PATHINFO_EXTENSION));
+
+        if (in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'], true)) {
+            return 'jpeg' === $extension ? 'jpg' : $extension;
+        }
+
+        $content_type = strtolower((string) $content_type);
+
+        if (false !== strpos($content_type, 'image/jpeg')) {
+            return 'jpg';
+        }
+
+        if (false !== strpos($content_type, 'image/png')) {
+            return 'png';
+        }
+
+        if (false !== strpos($content_type, 'image/gif')) {
+            return 'gif';
+        }
+
+        if (false !== strpos($content_type, 'image/webp')) {
+            return 'webp';
+        }
+
+        return 'svg';
     }
 
     private static function get_article_external_id($article)
