@@ -21,7 +21,13 @@ class Content_Studio_API_Client
             return new WP_Error('content_studio_missing_project_id', 'Content Studio project ID is not configured.');
         }
 
-        $url = trailingslashit(CONTENT_STUDIO_API_ROUTE) . 'projects/' . rawurlencode($project_id) . '/contents';
+        // Only content the engine has not seen confirmed as published, i.e. not
+        // yet on this site. Once this plugin confirms a publish the engine flips
+        // the status to 'published' and it drops out of this list.
+        $url = add_query_arg(
+            ['status' => 'approved'],
+            trailingslashit(CONTENT_STUDIO_API_ROUTE) . 'projects/' . rawurlencode($project_id) . '/contents'
+        );
 
         $response = wp_remote_get(
             $url,
