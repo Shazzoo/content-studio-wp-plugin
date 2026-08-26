@@ -300,49 +300,49 @@ class Content_Studio_Storage
 
     private static function replace_diagram_placeholders($content, $article)
     {
-        $urls = self::get_diagram_urls($article);
+        $replacements = self::get_diagram_replacements($article);
 
-        if ([] === $urls) {
+        if ([] === $replacements) {
             return $content;
         }
 
         return preg_replace_callback(
             '/<!--\s*diagram-placeholder:([0-9a-fA-F-]{36})\s*-->/',
-            static function ($matches) use ($urls) {
+            static function ($matches) use ($replacements) {
                 $id = strtolower($matches[1]);
 
-                return $urls[$id] ?? $matches[0];
+                return $replacements[$id] ?? $matches[0];
             },
             $content
         );
     }
 
-    private static function get_diagram_urls($article)
+    private static function get_diagram_replacements($article)
     {
-        $urls = [];
+        $replacements = [];
 
         foreach ([$article, $article['meta'] ?? null] as $source) {
             if (!is_array($source)) {
                 continue;
             }
 
-            foreach (['diagrams', 'diagram_urls', 'diagram_image_urls'] as $key) {
+            foreach (['diagram_placeholders', 'diagrams', 'diagram_urls', 'diagram_image_urls'] as $key) {
                 if (empty($source[$key]) || !is_array($source[$key])) {
                     continue;
                 }
 
-                $urls = array_merge($urls, self::get_diagram_urls_from_payload($source[$key]));
+                $replacements = array_merge($replacements, self::get_diagram_replacements_from_payload($source[$key]));
             }
 
             $id = self::get_diagram_placeholder_id($source['diagram_id'] ?? $source['diagram_uuid'] ?? null);
             $url = self::get_string_value($source['diagram_url'] ?? $source['diagram_image_url'] ?? null);
 
             if (null !== $id && null !== $url) {
-                $urls[$id] = $url;
+                $replacements[$id] = $url;
             }
         }
 
-        return $urls;
+        return $replacements;
     }
 
     private static function get_diagram_placeholder_id($value)
@@ -360,19 +360,19 @@ class Content_Studio_Storage
         return strtolower($matches[1]);
     }
 
-    private static function get_diagram_urls_from_payload($payload)
+    private static function get_diagram_replacements_from_payload($payload)
     {
-        $urls = [];
+        $replacements = [];
 
         foreach ($payload as $key => $entry) {
             if (is_string($key)) {
                 $id = self::get_diagram_placeholder_id($key);
                 $url = is_array($entry)
-                    ? self::get_diagram_url_from_entry($entry)
+                    ? self::get_diagram_replacement_from_entry($entry)
                     : self::get_string_value($entry);
 
                 if (null !== $id && null !== $url) {
-                    $urls[$id] = $url;
+                    $replacements[$id] = $url;
                 }
 
                 continue;
@@ -382,20 +382,33 @@ class Content_Studio_Storage
                 continue;
             }
 
-            $id = self::get_diagram_placeholder_id($entry['id'] ?? $entry['uuid'] ?? $entry['placeholder_id'] ?? null);
-            $url = self::get_diagram_url_from_entry($entry);
+            $id = self::get_diagram_placeholder_id($entry['placeholder'] ?? $entry['id'] ?? $entry['uuid'] ?? $entry['placeholder_id'] ?? null);
+            $replacement = self::get_diagram_replacement_from_entry($entry);
 
-            if (null !== $id && null !== $url) {
-                $urls[$id] = $url;
+            if (null !== $id && null !== $replacement) {
+                $replacements[$id] = $replacement;
             }
         }
 
-        return $urls;
+        return $replacements;
     }
 
-    private static function get_diagram_url_from_entry($entry)
+    private static function get_diagram_replacement_from_entry($entry)
     {
-        return self::get_string_value($entry['url'] ?? $entry['image_url'] ?? $entry['diagram_url'] ?? $entry['src'] ?? null);
+        $url = self::get_string_value($entry['url'] ?? $entry['image_url'] ?? $entry['diagram_url'] ?? $entry['src'] ?? null);
+
+        if (null === $url) {
+            return null;
+        }
+
+        $caption = self::get_string_value($entry['caption'] ?? null);
+        $alt = self::get_string_value($entry['alt'] ?? null) ?? $caption;
+
+        if (null === $caption && null === $alt) {
+            return $url;
+        }
+
+        return '<figure class="article-diagram"><img src="' . esc_url($url) . '" alt="' . esc_attr($alt ?? '') . '" loading="lazy"><figcaption>' . esc_html($caption ?? '') . '</figcaption></figure>';
     }
 
     private static function get_string_value($value)
