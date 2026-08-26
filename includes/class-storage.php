@@ -221,6 +221,9 @@ class Content_Studio_Storage
 
         $post_date = self::format_datetime($article['published_at'] ?? $article['date'] ?? null);
         $content = $article['body_html'] ?? $article['content'] ?? '';
+        if (is_string($content)) {
+            $content = self::replace_diagram_placeholders($content, $article);
+        }
         $excerpt = $article['excerpt'] ?? $article['meta_description'] ?? '';
         $author_id = self::get_author_id($article);
         $category_id = self::get_category_id();
@@ -293,6 +296,117 @@ class Content_Studio_Storage
         $status = isset($article['status']) ? strtolower(trim((string) $article['status'])) : '';
 
         return in_array($status, self::SYNCABLE_STATUSES, true);
+    }
+
+    private static function replace_diagram_placeholders($content, $article)
+    {
+        $urls = self::get_diagram_urls($article);
+
+        if ([] === $urls) {
+            return $content;
+        }
+
+        return preg_replace_callback(
+            '/<!--\s*diagram-placeholder:([0-9a-fA-F-]{36})\s*-->/',
+            static function ($matches) use ($urls) {
+                $id = strtolower($matches[1]);
+
+                return $urls[$id] ?? $matches[0];
+            },
+            $content
+        );
+    }
+
+    private static function get_diagram_urls($article)
+    {
+        $urls = [];
+
+        foreach ([$article, $article['meta'] ?? null] as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+
+            foreach (['diagrams', 'diagram_urls', 'diagram_image_urls'] as $key) {
+                if (empty($source[$key]) || !is_array($source[$key])) {
+                    continue;
+                }
+
+                $urls = array_merge($urls, self::get_diagram_urls_from_payload($source[$key]));
+            }
+
+            $id = self::get_diagram_placeholder_id($source['diagram_id'] ?? $source['diagram_uuid'] ?? null);
+            $url = self::get_string_value($source['diagram_url'] ?? $source['diagram_image_url'] ?? null);
+
+            if (null !== $id && null !== $url) {
+                $urls[$id] = $url;
+            }
+        }
+
+        return $urls;
+    }
+
+    private static function get_diagram_placeholder_id($value)
+    {
+        $value = self::get_string_value($value);
+
+        if (null === $value) {
+            return null;
+        }
+
+        if (1 !== preg_match('/([0-9a-fA-F-]{36})/', $value, $matches)) {
+            return null;
+        }
+
+        return strtolower($matches[1]);
+    }
+
+    private static function get_diagram_urls_from_payload($payload)
+    {
+        $urls = [];
+
+        foreach ($payload as $key => $entry) {
+            if (is_string($key)) {
+                $id = self::get_diagram_placeholder_id($key);
+                $url = is_array($entry)
+                    ? self::get_diagram_url_from_entry($entry)
+                    : self::get_string_value($entry);
+
+                if (null !== $id && null !== $url) {
+                    $urls[$id] = $url;
+                }
+
+                continue;
+            }
+
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $id = self::get_diagram_placeholder_id($entry['id'] ?? $entry['uuid'] ?? $entry['placeholder_id'] ?? null);
+            $url = self::get_diagram_url_from_entry($entry);
+
+            if (null !== $id && null !== $url) {
+                $urls[$id] = $url;
+            }
+        }
+
+        return $urls;
+    }
+
+    private static function get_diagram_url_from_entry($entry)
+    {
+        return self::get_string_value($entry['url'] ?? $entry['image_url'] ?? $entry['diagram_url'] ?? $entry['src'] ?? null);
+    }
+
+    private static function get_string_value($value)
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        return '' !== $value ? $value : null;
     }
 
     private static function get_category_id()
