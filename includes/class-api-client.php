@@ -4,14 +4,15 @@ class Content_Studio_API_Client
 {
     const PROJECT_TRANSIENT = 'content_studio_project_info';
 
+    /**
+     * Every approved article, following the Engine's pagination links.
+     *
+     * @return array|WP_Error
+     */
     public static function fetch_content()
     {
         $api_key = get_option('content_studio_api_key', '');
         $project_id = get_option('content_studio_project_id', '');
-        $headers = [
-            'Accept' => 'application/json',
-            'Authorization' => 'Bearer ' . $api_key,
-        ];
 
         if (empty($api_key)) {
             return new WP_Error('content_studio_missing_api_key', 'Content Studio API key is not configured.');
@@ -23,17 +24,52 @@ class Content_Studio_API_Client
 
         // Only content the engine has not seen confirmed as published, i.e. not
         // yet on this site. Once this plugin confirms a publish the engine flips
-        // the status to 'published' and it drops out of this list.
+        // the status to 'published' and it drops out of this list. The filter
+        // travels along in links.next, so later pages keep it.
         $url = add_query_arg(
             ['status' => 'approved'],
             trailingslashit(CONTENT_STUDIO_API_ROUTE) . 'projects/' . rawurlencode($project_id) . '/contents'
         );
 
+        $articles = [];
+        // A page count the Engine cannot realistically exceed, so a malformed
+        // links.next pointing at itself cannot spin forever.
+        $remaining_pages = 100;
+
+        while ($url && $remaining_pages-- > 0) {
+            $page = self::fetch_content_page($url, $api_key);
+
+            if (is_wp_error($page)) {
+                return $page;
+            }
+
+            foreach (self::page_articles($page) as $article) {
+                $articles[] = $article;
+            }
+
+            $next = isset($page['links']['next']) ? $page['links']['next'] : null;
+            $url = is_string($next) && '' !== $next ? self::normalize_engine_url($next) : null;
+        }
+
+        return ['data' => $articles];
+    }
+
+    /**
+     * @param string $url
+     * @param string $api_key
+     *
+     * @return array|WP_Error
+     */
+    private static function fetch_content_page($url, $api_key)
+    {
         $response = wp_remote_get(
             $url,
             [
                 'timeout' => 20,
-                'headers' => $headers,
+                'headers' => [
+                    'Accept' => 'application/json',
+                    'Authorization' => 'Bearer ' . $api_key,
+                ],
             ]
         );
 
@@ -50,14 +86,49 @@ class Content_Studio_API_Client
             );
         }
 
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
+        $data = json_decode(wp_remote_retrieve_body($response), true);
 
         if (JSON_ERROR_NONE !== json_last_error()) {
             return new WP_Error('content_studio_invalid_json', 'Content Studio API returned invalid JSON.');
         }
 
-        return $data;
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * The articles on one response page, whichever shape the Engine sends.
+     *
+     * @param array $page
+     *
+     * @return array
+     */
+    private static function page_articles($page)
+    {
+        if (isset($page['data']) && is_array($page['data'])) {
+            return $page['data'];
+        }
+
+        if (isset($page['articles']) && is_array($page['articles'])) {
+            return $page['articles'];
+        }
+
+        return array_values($page) === $page ? $page : [];
+    }
+
+    /**
+     * A links.next may arrive relative to the API root.
+     *
+     * @param string $url
+     *
+     * @return string
+     */
+    private static function normalize_engine_url($url)
+    {
+        if (preg_match('#^https?://#i', $url)) {
+            return $url;
+        }
+
+        return trailingslashit(CONTENT_STUDIO_API_ROUTE) . ltrim($url, '/');
     }
 
     /**
