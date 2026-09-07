@@ -39,12 +39,39 @@ class Content_Studio_Publish_Confirmation
     }
 
     /**
+     * WordPress kent de omgeving via WP_ENVIRONMENT_TYPE; zonder die constante
+     * gaat WordPress zelf uit van 'production', dus dan gedraagt de plugin
+     * zich zoals voorheen.
+     *
+     * @return bool
+     */
+    private static function is_production()
+    {
+        if (defined('CONTENT_STUDIO_CONFIRM_PUBLISHED')) {
+            return (bool) CONTENT_STUDIO_CONFIRM_PUBLISHED;
+        }
+
+        if (!function_exists('wp_get_environment_type')) {
+            return true;
+        }
+
+        return 'production' === wp_get_environment_type();
+    }
+
+    /**
      * @param int $post_id
      *
      * @return bool Whether a confirmation was sent.
      */
     public static function maybe_confirm($post_id)
     {
+        // Alleen productie bevestigt publicatie bij de Engine. Een lokale of
+        // staging-installatie die naar dezelfde Engine wijst, zou anders echte
+        // content op gepubliceerd zetten en uit de sync laten vallen.
+        if (!self::is_production()) {
+            return false;
+        }
+
         $post_id = absint($post_id);
 
         if (!$post_id) {

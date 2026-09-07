@@ -262,11 +262,13 @@ class Content_Studio_Storage
         }
 
         if (is_string($content)) {
-            $content = self::replace_diagram_placeholders(
+            $content = self::replace_image_placeholders(
                 $content,
                 $article,
                 static function ($image_url, $placeholder_id, $entry) use ($article, $post_id) {
-                    return self::maybe_import_diagram_image($image_url, $article, $post_id, $placeholder_id);
+                    $type = isset($entry['type']) && is_string($entry['type']) ? $entry['type'] : 'image';
+
+                    return self::maybe_import_placeholder_image($image_url, $article, $post_id, $placeholder_id, $type);
                 }
             );
 
@@ -314,54 +316,109 @@ class Content_Studio_Storage
         return in_array($status, self::SYNCABLE_STATUSES, true);
     }
 
-    private static function replace_diagram_placeholders($content, $article, $image_url_resolver = null)
+    /**
+     * Vervangt de afbeeldingsplaceholders die de Engine in de tekst zet.
+     *
+     * De Engine levert alle typen (diagram, illustratie, en later grafieken)
+     * in één image_placeholders-lijst waarin elk item een type heeft. De oude
+     * losse lijsten blijven werken zolang die lijst leeg of afwezig is.
+     */
+    private static function replace_image_placeholders($content, $article, $image_url_resolver = null)
     {
-        $replacements = self::get_diagram_replacements($article, $image_url_resolver);
+        $entries = self::collect_placeholder_entries($article);
+
+        if ([] === $entries) {
+            return $content;
+        }
+
+        $replacements = [];
+
+        foreach ($entries as $id => $entry) {
+            $replacement = self::render_placeholder($entry, $image_url_resolver, $id);
+
+            if (null !== $replacement) {
+                $replacements[$id] = $replacement;
+            }
+        }
 
         if ([] === $replacements) {
             return $content;
         }
 
+        // Elk <type>-placeholder:<uuid>, zodat een nieuw type geen aanpassing
+        // hier meer nodig heeft.
         return preg_replace_callback(
-            '/<!--\s*diagram-placeholder:([0-9a-fA-F-]{36})\s*-->/',
+            '/<!--\s*[a-z][a-z0-9_-]*-placeholder:([0-9a-fA-F-]{36})\s*-->/i',
             static function ($matches) use ($replacements) {
                 $id = strtolower($matches[1]);
 
-                return $replacements[$id] ?? $matches[0];
+                return isset($replacements[$id]) ? $replacements[$id] : $matches[0];
             },
             $content
         );
     }
 
-    private static function get_diagram_replacements($article, $image_url_resolver = null)
+    /**
+     * Verzamelt de placeholders zonder ze al te renderen, zodat een afbeelding
+     * die in meerdere lijsten staat maar een keer wordt opgehaald.
+     */
+    private static function collect_placeholder_entries($article)
     {
-        $replacements = [];
+        $legacy_keys = [
+            'diagram_placeholders' => 'diagram',
+            'diagrams' => 'diagram',
+            'diagram_urls' => 'diagram',
+            'diagram_image_urls' => 'diagram',
+            'illustration_placeholders' => 'illustration',
+            'illustrations' => 'illustration',
+            'illustration_urls' => 'illustration',
+            'illustration_image_urls' => 'illustration',
+        ];
 
-        foreach ([$article, $article['meta'] ?? null] as $source) {
+        $entries = [];
+
+        foreach ([$article, isset($article['meta']) ? $article['meta'] : null] as $source) {
             if (!is_array($source)) {
                 continue;
             }
 
-            foreach (['diagram_placeholders', 'diagrams', 'diagram_urls', 'diagram_image_urls'] as $key) {
+            // De samengevoegde lijst wint, maar alleen als er ook echt iets in
+            // staat: een Engine die het veld al meestuurt maar nog niet vult,
+            // levert een lege array en moet op de oude lijsten terugvallen.
+            $merged = isset($source['image_placeholders']) ? $source['image_placeholders'] : null;
+
+            if (is_array($merged) && [] !== $merged) {
+                $entries = array_merge($entries, self::get_placeholder_entries_from_payload($merged, 'image'));
+
+                continue;
+            }
+
+            foreach ($legacy_keys as $key => $type) {
                 if (empty($source[$key]) || !is_array($source[$key])) {
                     continue;
                 }
 
-                $replacements = array_merge($replacements, self::get_diagram_replacements_from_payload($source[$key], $image_url_resolver));
+                $entries = array_merge($entries, self::get_placeholder_entries_from_payload($source[$key], $type));
             }
 
-            $id = self::get_diagram_placeholder_id($source['diagram_id'] ?? $source['diagram_uuid'] ?? null);
-            $url = self::get_string_value($source['diagram_url'] ?? $source['diagram_image_url'] ?? null);
+            foreach (['diagram' => 'diagram', 'illustration' => 'illustration'] as $prefix => $type) {
+                $id = self::get_placeholder_id(
+                    isset($source[$prefix . '_id']) ? $source[$prefix . '_id'] : (isset($source[$prefix . '_uuid']) ? $source[$prefix . '_uuid'] : null)
+                );
+                $url = self::get_string_value(
+                    isset($source[$prefix . '_url']) ? $source[$prefix . '_url'] : (isset($source[$prefix . '_image_url']) ? $source[$prefix . '_image_url'] : null)
+                );
 
-            if (null !== $id && null !== $url) {
-                $replacements[$id] = self::get_diagram_replacement_from_url($url, null, null, $image_url_resolver, $id);
+                if (null !== $id && null !== $url) {
+                    $entries[$id] = ['url' => $url, 'type' => $type];
+                }
             }
         }
 
-        return $replacements;
+        return $entries;
     }
 
-    private static function get_diagram_placeholder_id($value)
+    private static function get_placeholder_id($value)
     {
         $value = self::get_string_value($value);
 
@@ -376,58 +433,85 @@ class Content_Studio_Storage
         return strtolower($matches[1]);
     }
 
-    private static function get_diagram_replacements_from_payload($payload, $image_url_resolver = null)
+    private static function get_placeholder_entries_from_payload($payload, $fallback_type)
     {
-        $replacements = [];
+        $entries = [];
 
         foreach ($payload as $key => $entry) {
             if (is_string($key)) {
-                $id = self::get_diagram_placeholder_id($key);
-                $replacement = is_array($entry)
-                    ? self::get_diagram_replacement_from_entry($entry, $image_url_resolver, $id)
-                    : self::get_diagram_replacement_from_url(self::get_string_value($entry), null, null, $image_url_resolver, $id);
+                $id = self::get_placeholder_id($key);
 
-                if (null !== $id && null !== $replacement) {
-                    $replacements[$id] = $replacement;
+                if (null === $id) {
+                    continue;
                 }
 
+                $entry = is_array($entry) ? $entry : ['url' => self::get_string_value($entry)];
+            } else {
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                $id = self::get_placeholder_id(self::first_set($entry, ['placeholder', 'id', 'uuid', 'placeholder_id']));
+
+                if (null === $id) {
+                    continue;
+                }
+            }
+
+            $url = self::get_string_value(self::first_set($entry, ['url', 'image_url', 'diagram_url', 'illustration_url', 'src']));
+
+            if (null === $url) {
                 continue;
             }
 
-            if (!is_array($entry)) {
-                continue;
-            }
+            $entry['url'] = $url;
+            $type = self::normalize_placeholder_type(isset($entry['type']) ? $entry['type'] : null);
+            $entry['type'] = null !== $type ? $type : $fallback_type;
 
-            $id = self::get_diagram_placeholder_id($entry['placeholder'] ?? $entry['id'] ?? $entry['uuid'] ?? $entry['placeholder_id'] ?? null);
-            $replacement = self::get_diagram_replacement_from_entry($entry, $image_url_resolver, $id);
+            $entries[$id] = $entry;
+        }
 
-            if (null !== $id && null !== $replacement) {
-                $replacements[$id] = $replacement;
+        return $entries;
+    }
+
+    private static function first_set($entry, $keys)
+    {
+        foreach ($keys as $key) {
+            if (isset($entry[$key])) {
+                return $entry[$key];
             }
         }
 
-        return $replacements;
+        return null;
     }
 
-    private static function get_diagram_replacement_from_entry($entry, $image_url_resolver = null, $placeholder_id = null)
+    private static function normalize_placeholder_type($value)
     {
-        $url = self::get_string_value($entry['url'] ?? $entry['image_url'] ?? $entry['diagram_url'] ?? $entry['src'] ?? null);
+        $value = self::get_string_value($value);
+
+        if (null === $value) {
+            return null;
+        }
+
+        $value = preg_replace('/[^a-z0-9-]/', '', strtolower($value));
+
+        return '' !== (string) $value ? $value : null;
+    }
+
+    private static function render_placeholder($entry, $image_url_resolver, $placeholder_id)
+    {
+        $url = self::get_string_value(isset($entry['url']) ? $entry['url'] : null);
 
         if (null === $url) {
             return null;
         }
 
-        $caption = self::get_string_value($entry['caption'] ?? null);
-        $alt = self::get_string_value($entry['alt'] ?? null) ?? $caption;
+        $type = self::normalize_placeholder_type(isset($entry['type']) ? $entry['type'] : null);
+        $type = null !== $type ? $type : 'image';
 
-        return self::get_diagram_replacement_from_url($url, $alt, $caption, $image_url_resolver, $placeholder_id, $entry);
-    }
-
-    private static function get_diagram_replacement_from_url($url, $alt, $caption, $image_url_resolver = null, $placeholder_id = null, $entry = [])
-    {
-        if (null === $url) {
-            return null;
-        }
+        $caption = self::get_string_value(isset($entry['caption']) ? $entry['caption'] : null);
+        $alt = self::get_string_value(isset($entry['alt']) ? $entry['alt'] : null);
+        $alt = null !== $alt ? $alt : $caption;
 
         if (is_callable($image_url_resolver)) {
             $url = call_user_func($image_url_resolver, $url, $placeholder_id, $entry);
@@ -437,7 +521,11 @@ class Content_Studio_Storage
             return $url;
         }
 
-        return '<figure class="article-diagram"><img src="' . esc_url($url) . '" alt="' . esc_attr($alt ?? '') . '" loading="lazy"><figcaption>' . esc_html($caption ?? '') . '</figcaption></figure>';
+        // article-diagram blijft staan voor themes die daar al op stylen.
+        return '<figure class="article-image article-' . esc_attr($type) . '">'
+            . '<img src="' . esc_url($url) . '" alt="' . esc_attr(null !== $alt ? $alt : '') . '" loading="lazy">'
+            . '<figcaption>' . esc_html(null !== $caption ? $caption : '') . '</figcaption>'
+            . '</figure>';
     }
 
     private static function get_string_value($value)
@@ -638,7 +726,7 @@ class Content_Studio_Storage
         update_post_meta($post_id, '_content_studio_imported_image_url', esc_url_raw($image_url));
     }
 
-    private static function maybe_import_diagram_image($image_url, $article, $post_id, $placeholder_id)
+    private static function maybe_import_placeholder_image($image_url, $article, $post_id, $placeholder_id, $type = 'image')
     {
         if (!$image_url || !filter_var($image_url, FILTER_VALIDATE_URL)) {
             return $image_url;
@@ -655,7 +743,7 @@ class Content_Studio_Storage
             return $existing_local_url;
         }
 
-        $local_url = self::store_diagram_file($image_url, $placeholder_id);
+        $local_url = self::store_placeholder_file($image_url, $placeholder_id, $type);
 
         if (!$local_url) {
             return $image_url;
@@ -667,7 +755,7 @@ class Content_Studio_Storage
         return $local_url;
     }
 
-    private static function store_diagram_file($image_url, $placeholder_id)
+    private static function store_placeholder_file($image_url, $placeholder_id, $type = 'image')
     {
         $response = wp_remote_get($image_url, [
             'timeout' => 20,
@@ -691,7 +779,11 @@ class Content_Studio_Storage
         }
 
         $extension = self::get_image_extension($image_url, wp_remote_retrieve_header($response, 'content-type'));
-        $filename = sanitize_file_name(($placeholder_id ?: md5($image_url)) . '.' . $extension);
+        // wp_upload_bits schrijft naar de standaard uploadmap, dus het type
+        // gaat in de bestandsnaam in plaats van in een submap.
+        $prefix = self::normalize_placeholder_type($type);
+        $prefix = null !== $prefix ? $prefix . '-' : '';
+        $filename = sanitize_file_name($prefix . ($placeholder_id ?: md5($image_url)) . '.' . $extension);
         $upload = wp_upload_bits($filename, null, $body);
 
         if (!empty($upload['error']) || empty($upload['url'])) {

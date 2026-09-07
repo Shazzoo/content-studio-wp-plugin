@@ -677,3 +677,27 @@ body.settings_page_content-studio .button:not(.content-studio-button):active {
     position: static;
   }
 }
+
+/* Afbeeldingen die de Engine als placeholder in de tekst zet (diagrammen,
+   illustraties en latere typen). */
+.article-image {
+    margin: 2rem 0;
+}
+
+.article-image img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 0.5rem;
+}
+
+.article-image figcaption {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: #475569;
+}
+
+.article-image figcaption:empty {
+    display: none;
+}

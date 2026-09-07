@@ -358,6 +358,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-admin-settings.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-latest-posts-block.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-blog-route.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-publish-confirmation.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-seo.php';
 
 register_activation_hook(__FILE__, ['Content_Studio_Blog_Route', 'activate']);
 register_activation_hook(__FILE__, 'content_studio_schedule_sync');
@@ -370,3 +371,4 @@ new Content_Studio_Admin_Settings();
 new Content_Studio_Latest_Posts_Block();
 new Content_Studio_Blog_Route();
 new Content_Studio_Publish_Confirmation();
+new Content_Studio_Seo();
