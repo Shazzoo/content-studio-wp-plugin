@@ -17,6 +17,7 @@ if (!defined('CONTENT_STUDIO_API_ROUTE')) {
 define('CONTENT_STUDIO_PLUGIN_FILE', __FILE__);
 define('CONTENT_STUDIO_REWRITE_VERSION', '3');
 define('CONTENT_STUDIO_SYNC_CRON_EVENT', 'content_studio_sync_articles');
+define('CONTENT_STUDIO_SYNC_CRON_INTERVAL', 'content_studio_fifteen_minutes');
 
 function content_studio_enqueue_styles($include_custom_styles = true)
 {
@@ -317,13 +318,29 @@ function content_studio_enqueue_admin_styles($hook)
     }
 }
 
+function content_studio_register_cron_interval($schedules)
+{
+    $schedules[CONTENT_STUDIO_SYNC_CRON_INTERVAL] = [
+        'interval' => 15 * MINUTE_IN_SECONDS,
+        'display'  => __('Every 15 minutes', 'content-studio'),
+    ];
+
+    return $schedules;
+}
+
 function content_studio_schedule_sync()
 {
-    if (wp_next_scheduled(CONTENT_STUDIO_SYNC_CRON_EVENT)) {
+    $scheduled = wp_get_scheduled_event(CONTENT_STUDIO_SYNC_CRON_EVENT);
+
+    if ($scheduled && CONTENT_STUDIO_SYNC_CRON_INTERVAL === $scheduled->schedule) {
         return;
     }
 
-    wp_schedule_event(time() + HOUR_IN_SECONDS, 'hourly', CONTENT_STUDIO_SYNC_CRON_EVENT);
+    if ($scheduled) {
+        content_studio_clear_sync_schedule();
+    }
+
+    wp_schedule_event(time() + 15 * MINUTE_IN_SECONDS, CONTENT_STUDIO_SYNC_CRON_INTERVAL, CONTENT_STUDIO_SYNC_CRON_EVENT);
 }
 
 function content_studio_clear_sync_schedule()
@@ -348,6 +365,7 @@ function content_studio_run_scheduled_sync()
 
 add_action('wp_enqueue_scripts', 'content_studio_enqueue_styles');
 add_action('admin_enqueue_scripts', 'content_studio_enqueue_admin_styles');
+add_filter('cron_schedules', 'content_studio_register_cron_interval');
 add_action('init', 'content_studio_schedule_sync');
 
 require_once plugin_dir_path(__FILE__) . 'includes/class-language.php';
