@@ -6,7 +6,7 @@ overview page with pagination and per-language URLs, writes their SEO
 metadata, lists the articles under their hub article, reports page views back
 to the Engine and confirms to the Engine once an article is live.
 
-This README is for whoever installs the plugin on a site or adapts it for one.
+This guide is for developers integrating or customizing the plugin on a WordPress site. It covers installation, configuration, behavior, and supported extension points. It does not document plugin development or release procedures.
 
 ## Requirements
 
@@ -63,91 +63,22 @@ languages or the post type change and the page is missing.
 - With Polylang every published language has its own overview page (see
   [Languages](#languages)).
 
-## Installing on an existing site
+## Installing and configuring
 
-The plugin is installed as a zip through the WordPress admin.
+Install the plugin package supplied for your site through **Plugins → Add New Plugin → Upload Plugin**, then activate it. Activation creates the overview page and schedules synchronization. Before the first sync:
 
-### 1. Build the zip
+- Use a backup or staging site when evaluating the plugin. Syncing creates posts, pages, users, and media.
+- Set `WP_ENVIRONMENT_TYPE` to `staging` or `local` on non-production copies connected to a real Engine project. Otherwise the plugin may confirm articles as published, causing the Engine to stop offering them to the live site. See [Local development and staging](#local-development-and-staging).
+- Use pretty permalinks; *Plain* permalinks do not support the plugin's URLs.
+- If `/blog` is already used by a site page, the plugin preserves it and chooses an available overview URL. Set the preferred **Blog URL** in the plugin settings.
+- Decide before the first sync whether articles should use the normal Posts type or a custom post type. Existing articles are not moved if this is changed later; see [Storing articles under your own post type](#storing-articles-under-your-own-post-type).
+- If using Polylang or WPML, configure the site's languages with the same codes as the Engine project (`nl`, `en`, etc.).
 
-From the plugin's git repository:
+In **Settings → Content Studio**, enter the Engine API key and Project ID and save. Set the Blog URL, page size, category, and fallback author, then run **Sync Articles**. Once the Engine languages appear in **Published Languages**, choose which ones to publish and select the default language. Style settings can be adjusted with the live preview.
 
-```bash
-git archive --format=zip --prefix=content-studio/ -o ~/Desktop/content-studio.zip main
-```
+Confirm that the status card reports a successful sync, the overview page lists articles, and an article page opens. For sites with a Content-Security-Policy, allow `connect-src https://engine.content-studio.com` for [tracking](#tracking).
 
-The folder inside the zip must be called `content-studio`. WordPress tells
-plugins apart by their folder, so a zip with another folder name, such as
-GitHub's *Download ZIP* (`content-studio-wp-plugin-main/`), installs as a
-second copy next to the first. `git archive` also leaves out the `.git`
-folder.
-
-### 2. Before installing
-
-- **Make a backup** of the database. The plugin creates posts, pages, users
-  and media, and can turn articles into drafts (see [Languages](#languages)).
-- **Staging or local copy?** Set `WP_ENVIRONMENT_TYPE` to `staging` or `local`
-  in `wp-config.php` first. Without it WordPress assumes production, and the
-  plugin then marks the project's articles as published in the Engine, after
-  which the live site no longer receives them. See
-  [Local development and staging](#local-development-and-staging).
-- **Does the site have a page at `/blog`?** The plugin leaves it alone and puts
-  its overview at `/content-studio`, with a notice. Set a better Blog URL in
-  step 4.
-- **Own posts?** Synced articles become normal posts, so they show up in the
-  site's own blog, feed and categories. To keep them apart, set an **Article
-  Category**, or let a developer store them under their own post type before
-  the first sync (see
-  [Storing articles under your own post type](#storing-articles-under-your-own-post-type)).
-- **Polylang?** Make sure it has the languages the site should publish, with
-  the same codes as the Engine (`nl`, `en`, ...).
-- **Permalinks** must not be *Plain* (**Settings → Permalinks**).
-
-### 3. Upload and activate
-
-1. **Plugins → Add New Plugin → Upload Plugin**, choose `content-studio.zip`,
-   **Install Now**.
-2. **Activate Plugin**. This creates the overview page and schedules the sync.
-
-### 4. Configure, in this order
-
-Under **Settings → Content Studio**:
-
-1. **Connection Settings**: API Key and Project ID. **Save Settings**.
-2. **Blog Settings**: the Blog URL (change it now if the plugin moved to
-   `/content-studio` or another word suits the site better), Articles per Page, Article Category
-   and Fallback Author.
-3. **Save Settings**, then **Sync Articles** at the top of the page. Until
-   now only the project's main language is published.
-4. **Language Settings**: the project's languages are listed now. Tick the
-   ones the site should publish and choose the default language. **Save
-   Settings**.
-5. Adjust **Style Settings** with the live preview.
-
-### 5. Check
-
-- The status card shows the last sync without an error, and the next one as
-  due within 15 minutes.
-- The overview (`/blog` or your Blog URL) lists the articles, and an article
-  opens.
-- With Yoast: the article's canonical is its own URL.
-- With Polylang: every published language has an overview page under
-  **Pages**.
-- On a quiet site, set up a real cron job (see [Syncing](#syncing)).
-- With a Content-Security-Policy, allow `connect-src
-  https://engine.content-studio.com` for [tracking](#tracking).
-
-### Updating
-
-Build a new zip the same way and upload it again through **Plugins → Add New
-Plugin → Upload Plugin**. WordPress asks whether to replace the installed
-version: choose **Replace current with uploaded**. Settings, articles and
-pages stay; the plugin rebuilds its URLs on the next page load. Raise
-`Version:` at the top of `content-studio.php` for each release, so the
-replace screen shows which version is which.
-
-Read the commits since the last update first: some changes apply to the
-existing articles straight away, such as a different default for the
-published languages.
+For upgrades, install the package supplied for the site over the existing plugin through WordPress. Settings, articles, and pages remain in place. Review release notes for changes that affect already-synced articles.
 
 ## Syncing
 
@@ -699,22 +630,3 @@ users and options stay.
 - **Rank Math, All in One SEO and SEOPress** do not get the Engine's SEO
   values yet.
 - **WPML** has not been tested.
-
-## Code layout
-
-| Path | |
-|---|---|
-| `content-studio.php` | Bootstrap, style settings, cron, `content_studio_load_view()`, `content_studio_post_type()`, `content_studio_blog_slug()` |
-| `includes/class-api-client.php` | Engine API: contents, project, confirm-published |
-| `includes/class-storage.php` | The sync: posts, meta, images, authors, published languages |
-| `includes/class-language.php` | Languages: published, default, URL codes; Polylang and WPML |
-| `includes/class-blog-route.php` | Overview pages, rewrite rules, redirects, pagination, language switcher |
-| `includes/class-latest-posts-block.php` | The block and the article overview |
-| `includes/class-hub-articles.php` | Articles under a hub article |
-| `includes/class-strings.php` | Front-end text per language |
-| `includes/class-seo.php` | Meta tags, JSON-LD, Yoast integration |
-| `includes/class-tracking.php` | Loads the tracking script |
-| `includes/class-publish-confirmation.php` | Confirms published articles to the Engine |
-| `includes/class-admin-settings.php`, `includes/class-rest-routes.php` | Settings page and the sync REST route |
-| `views/` | Front-end views (overridable) and the admin screens |
-| `js/tracking.js`, `css/content-studio.css` | Tracking script and styles |
