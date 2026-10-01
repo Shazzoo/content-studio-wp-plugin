@@ -378,6 +378,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-blog-route.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-publish-confirmation.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-seo.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-tracking.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-hub-articles.php';
 
 register_activation_hook(__FILE__, ['Content_Studio_Blog_Route', 'activate']);
 register_activation_hook(__FILE__, 'content_studio_schedule_sync');
@@ -392,3 +393,4 @@ new Content_Studio_Blog_Route();
 new Content_Studio_Publish_Confirmation();
 new Content_Studio_Seo();
 new Content_Studio_Tracking();
+new Content_Studio_Hub_Articles();

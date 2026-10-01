@@ -633,6 +633,7 @@ class Content_Studio_Storage
             'status',
             'content_type',
             'cluster_key',
+            'hub_content_id',
             'locale',
             'primary_keyword',
             'meta_description',

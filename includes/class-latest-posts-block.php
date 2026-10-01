@@ -92,7 +92,7 @@ class Content_Studio_Latest_Posts_Block
         return ob_get_clean();
     }
 
-    private static function render_card($attributes)
+    public static function render_card($attributes)
     {
         $card = [
             'article_classes' => implode(' ', get_post_class('content-studio-blog__article')),
