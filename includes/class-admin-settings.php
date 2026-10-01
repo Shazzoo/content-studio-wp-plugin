@@ -524,7 +524,62 @@ class Content_Studio_Admin_Settings
         exit;
     }
 
+    /**
+     * Synct en legt de uitkomst vast voor de status op de instellingenpagina,
+     * of de sync nu van de cron, de knop of de REST-route komt.
+     *
+     * @return int|WP_Error Aantal opgeslagen artikelen.
+     */
     public static function run_sync()
+    {
+        $result = self::sync();
+
+        update_option('content_studio_last_sync_at', time());
+
+        if (is_wp_error($result)) {
+            update_option('content_studio_last_sync_error', $result->get_error_message());
+
+            return $result;
+        }
+
+        update_option('content_studio_last_sync_error', '');
+        update_option('content_studio_last_sync_count', absint($result));
+
+        return $result;
+    }
+
+    /**
+     * Wat de statuskaart toont.
+     *
+     * @return array
+     */
+    public static function sync_status()
+    {
+        $last_at = get_option('content_studio_last_sync_at', '');
+
+        // Oudere versies sloegen de lokale tijd als tekst op.
+        if ('' !== $last_at && !is_numeric($last_at)) {
+            $last_at = strtotime(get_gmt_from_date((string) $last_at) . ' UTC');
+        }
+
+        $next_at = wp_next_scheduled(CONTENT_STUDIO_SYNC_CRON_EVENT);
+
+        return [
+            'last_at' => $last_at ? (int) $last_at : null,
+            'last_error' => (string) get_option('content_studio_last_sync_error', ''),
+            'last_count' => absint(get_option('content_studio_last_sync_count', 0)),
+            'next_at' => $next_at ? (int) $next_at : null,
+            // Een kwartier te laat betekent dat WP-Cron niet draait: de site
+            // krijgt geen bezoek, of DISABLE_WP_CRON staat aan zonder echte cron.
+            'cron_overdue' => $next_at && $next_at < time() - 15 * MINUTE_IN_SECONDS,
+            'confirmation_error' => (string) get_option('content_studio_last_publish_confirmation_error', ''),
+        ];
+    }
+
+    /**
+     * @return int|WP_Error
+     */
+    private static function sync()
     {
         $content = Content_Studio_API_Client::fetch_content();
 

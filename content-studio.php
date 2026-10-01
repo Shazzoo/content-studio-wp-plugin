@@ -350,17 +350,7 @@ function content_studio_clear_sync_schedule()
 
 function content_studio_run_scheduled_sync()
 {
-    $result = Content_Studio_Admin_Settings::run_sync();
-
-    update_option('content_studio_last_sync_at', current_time('mysql'));
-
-    if (is_wp_error($result)) {
-        update_option('content_studio_last_sync_error', $result->get_error_message());
-        return;
-    }
-
-    update_option('content_studio_last_sync_error', '');
-    update_option('content_studio_last_sync_count', absint($result));
+    Content_Studio_Admin_Settings::run_sync();
 }
 
 add_action('wp_enqueue_scripts', 'content_studio_enqueue_styles');

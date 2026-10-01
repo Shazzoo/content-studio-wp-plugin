@@ -24,13 +24,11 @@ class Content_Studio_REST_Routes
 
     public function sync_content()
     {
-        $content = Content_Studio_API_Client::fetch_content();
+        $saved = Content_Studio_Admin_Settings::run_sync();
 
-        if (is_wp_error($content)) {
-            return $content;
+        if (is_wp_error($saved)) {
+            return $saved;
         }
-
-        $saved = Content_Studio_Storage::save($content);
 
         return rest_ensure_response([
             'success' => true,
