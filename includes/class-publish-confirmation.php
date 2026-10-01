@@ -103,6 +103,13 @@ class Content_Studio_Publish_Confirmation
 
         $response = Content_Studio_API_Client::confirm_published($content_id, $published_url);
 
+        // Already published in the Engine: nothing went wrong. The new URL is
+        // not recorded as confirmed, so it is sent again on the next save,
+        // which starts working once the Engine accepts URL updates.
+        if (is_wp_error($response) && 'content_studio_already_published' === $response->get_error_code()) {
+            return false;
+        }
+
         if (is_wp_error($response)) {
             update_option('content_studio_last_publish_confirmation_error', $response->get_error_message());
 

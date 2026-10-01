@@ -253,6 +253,19 @@ class Content_Studio_API_Client
 
         $status_code = wp_remote_retrieve_response_code($response);
 
+        // The Engine only confirms content that is still 'approved'. An
+        // article it already has as published - e.g. confirmed again because
+        // its URL changed - comes back as a 422 saying so. That is not a
+        // failure; the Engine just does not take URL updates yet.
+        if (422 === $status_code) {
+            $body = json_decode(wp_remote_retrieve_body($response), true);
+            $message = is_array($body) && isset($body['message']) ? (string) $body['message'] : '';
+
+            if (preg_match("/status is 'published'/", $message)) {
+                return new WP_Error('content_studio_already_published', $message);
+            }
+        }
+
         if ($status_code < 200 || $status_code >= 300) {
             return new WP_Error(
                 'content_studio_api_error',
