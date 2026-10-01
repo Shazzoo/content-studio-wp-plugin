@@ -50,10 +50,12 @@ shortcode `[content_studio_blog]`. The plugin creates it on activation, titled
 "Content Studio Articles", and again whenever the Blog URL, the published
 languages or the post type change and the page is missing.
 
-- If a page already exists at the Blog URL, the plugin uses that one, also when
-  it is a page of the site's own without the shortcode. On a site with its own
-  `/blog` page, change the Blog URL straight after activating (see
-  [Installing on an existing site](#installing-on-an-existing-site)).
+- It never takes over a page of the site's own. If the Blog URL is a page
+  without the shortcode, such as the site's own `/blog`, the plugin puts its
+  overview at `/content-studio` instead (or `/content-studio-2` and on when
+  that is taken too), stores that as the Blog URL and shows a notice in the
+  admin. Change it to a better word under **Blog URL**. With a custom post
+  type, whose slug fixes the URL, it only shows the notice.
 - Rename the page or add text around the shortcode freely: the plugin never
   changes the title or content afterwards. The title shows in the browser tab
   and in search results; the heading above the article list comes from the
@@ -88,9 +90,9 @@ folder.
   plugin then marks the project's articles as published in the Engine, after
   which the live site no longer receives them. See
   [Local development and staging](#local-development-and-staging).
-- **Does the site have a page at `/blog`?** The plugin uses whatever page is at
-  the Blog URL as its overview. If `/blog` is taken, set the Blog URL to a free
-  word straight after activating, before the first sync (step 4).
+- **Does the site have a page at `/blog`?** The plugin leaves it alone and puts
+  its overview at `/content-studio`, with a notice. Set a better Blog URL in
+  step 4.
 - **Own posts?** Synced articles become normal posts, so they show up in the
   site's own blog, feed and categories. To keep them apart, set an **Article
   Category**, or let a developer store them under their own post type before
@@ -111,8 +113,8 @@ folder.
 Under **Settings → Content Studio**:
 
 1. **Connection Settings**: API Key and Project ID. **Save Settings**.
-2. **Blog Settings**: the Blog URL (change it now if `/blog` is taken or
-   another word suits the site better), Articles per Page, Article Category
+2. **Blog Settings**: the Blog URL (change it now if the plugin moved to
+   `/content-studio` or another word suits the site better), Articles per Page, Article Category
    and Fallback Author.
 3. **Save Settings**, then **Sync Articles** at the top of the page. Until
    now only the project's main language is published.
@@ -260,6 +262,9 @@ trailing slash.
   site's own posts;
 - rebuilds the rewrite rules, and with Yoast its stored URLs, on the next page
   load.
+
+An old URL that becomes a page of the site's own later stops redirecting, so
+that page shows.
 
 It refuses a URL that a page already uses (other than its own overview),
 two-letter URLs (they look like language codes) and paths WordPress reserves,
@@ -688,8 +693,6 @@ users and options stay.
   an article it already has as published.
 - **No full re-sync.** There is no button or command yet to fetch every
   article again, for example to pick up a field added in a plugin update.
-- **An existing page at the Blog URL is taken over** as the overview on
-  activation, also when it is not the plugin's own.
 - **Dates follow the site language.** The date on a card uses WordPress's
   date format and month names, so a Dutch article on an English site shows
   "August 24, 2026". The same goes for WordPress's own "Page 2" in the title.
