@@ -25,6 +25,12 @@ class Content_Studio_Blog_Route
 
     const PAGE_CONTENT = '<!-- wp:shortcode -->[content_studio_blog]<!-- /wp:shortcode -->';
 
+    /**
+     * Set when the plugin moved its overview away from a page of the site's
+     * own; shown once on the settings page.
+     */
+    const MOVED_NOTICE_OPTION = 'content_studio_blog_page_moved';
+
     const LEGACY_QUERY_VAR = 'cs_legacy_blog';
 
     const LEGACY_PATH_QUERY_VAR = 'cs_legacy_path';
@@ -34,6 +40,7 @@ class Content_Studio_Blog_Route
         add_action('init', [$this, 'register_shortcode']);
         add_action('init', [self::class, 'register_rewrites']);
         add_action('init', [self::class, 'maybe_flush_rewrite_rules'], 20);
+        add_action('admin_notices', [self::class, 'render_moved_notice']);
         add_filter('query_vars', [self::class, 'register_query_var']);
         add_action('add_option_' . self::SLUG_OPTION, [self::class, 'on_slug_added'], 10, 2);
         add_action('update_option_' . self::SLUG_OPTION, [self::class, 'on_slug_changed'], 10, 2);
@@ -397,7 +404,16 @@ class Content_Studio_Blog_Route
         return array_values(array_filter(
             array_map('sanitize_title', (array) get_option(self::PREVIOUS_SLUGS_OPTION, [])),
             static function ($slug) use ($current) {
-                return '' !== $slug && !in_array($slug, $current, true);
+                if ('' === $slug || in_array($slug, $current, true)) {
+                    return false;
+                }
+
+                // The site has its own page there now; that page wins. This
+                // list is part of the rewrite version, so the redirect
+                // disappears on the next request.
+                $page = get_page_by_path($slug);
+
+                return !$page instanceof WP_Post || has_shortcode((string) $page->post_content, 'content_studio_blog');
             }
         ));
     }
@@ -502,6 +518,26 @@ class Content_Studio_Blog_Route
     {
         $slug = content_studio_blog_slug();
         $page = get_page_by_path($slug);
+        $moved = false;
+
+        // A page of the site's own, such as its own blog: never take it over.
+        if ($page instanceof WP_Post && !has_shortcode((string) $page->post_content, 'content_studio_blog')) {
+            $foreign = $page;
+            $page = null;
+
+            if ('post' !== content_studio_post_type()) {
+                // A custom post type fixes the URL; only say so.
+                update_option(self::MOVED_NOTICE_OPTION, ['from' => $slug, 'to' => '', 'title' => get_the_title($foreign)]);
+
+                return false;
+            }
+
+            $slug = self::free_slug();
+            self::set_slug_without_redirect($slug);
+            update_option(self::MOVED_NOTICE_OPTION, ['from' => $foreign->post_name, 'to' => $slug, 'title' => get_the_title($foreign)]);
+            $moved = true;
+            $page = get_page_by_path($slug);
+        }
 
         if (!$page instanceof WP_Post || 'page' !== $page->post_type) {
             $page_id = wp_insert_post([
@@ -518,6 +554,59 @@ class Content_Studio_Blog_Route
         if ($page instanceof WP_Post) {
             self::ensure_language_pages($page);
         }
+
+        return $moved;
+    }
+
+    /**
+     * content-studio, or content-studio-2 and on when that is taken by a page
+     * without the shortcode.
+     *
+     * @return string
+     */
+    private static function free_slug()
+    {
+        for ($i = 1; ; $i++) {
+            $slug = 1 === $i ? 'content-studio' : 'content-studio-' . $i;
+            $page = get_page_by_path($slug);
+
+            if (!$page instanceof WP_Post || has_shortcode((string) $page->post_content, 'content_studio_blog')) {
+                return $slug;
+            }
+        }
+    }
+
+    /**
+     * Stores a new Blog URL without remembering the old one: that URL is a
+     * page of the site's own and must not redirect.
+     */
+    private static function set_slug_without_redirect($slug)
+    {
+        remove_action('add_option_' . self::SLUG_OPTION, [self::class, 'on_slug_added'], 10);
+        remove_action('update_option_' . self::SLUG_OPTION, [self::class, 'on_slug_changed'], 10);
+        update_option(self::SLUG_OPTION, $slug);
+        add_action('add_option_' . self::SLUG_OPTION, [self::class, 'on_slug_added'], 10, 2);
+        add_action('update_option_' . self::SLUG_OPTION, [self::class, 'on_slug_changed'], 10, 2);
+    }
+
+    public static function render_moved_notice()
+    {
+        $moved = get_option(self::MOVED_NOTICE_OPTION);
+
+        if (!is_array($moved) || !current_user_can('manage_options')) {
+            return;
+        }
+
+        // Shown once.
+        delete_option(self::MOVED_NOTICE_OPTION);
+
+        if ('' === $moved['to']) {
+            $message = sprintf('Content Studio: the page "%1$s" already uses /%2$s, the URL of your post type. Give that page another URL, so the article overview can live there.', $moved['title'], $moved['from']);
+        } else {
+            $message = sprintf('Content Studio: /%1$s is the page "%2$s" of this site, so the article overview is at /%3$s instead. Change it under Settings → Content Studio → Blog URL.', $moved['from'], $moved['title'], $moved['to']);
+        }
+
+        printf('<div class="notice notice-warning"><p>%s</p></div>', esc_html($message));
     }
 
     /**
@@ -594,10 +683,15 @@ class Content_Studio_Blog_Route
             return;
         }
 
-        self::ensure_blog_page();
+        $moved = self::ensure_blog_page();
         flush_rewrite_rules();
         self::refresh_seo_plugin_urls();
-        update_option('content_studio_rewrite_version', self::rewrite_version());
+
+        // The rules of this request still have the old URL; leaving the
+        // version unset rebuilds them on the next one.
+        if (!$moved) {
+            update_option('content_studio_rewrite_version', self::rewrite_version());
+        }
     }
 
     /**
