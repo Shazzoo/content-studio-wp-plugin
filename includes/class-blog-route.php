@@ -500,7 +500,7 @@ class Content_Studio_Blog_Route
         }
 
         wp_insert_post([
-            'post_title' => 'post' === content_studio_post_type() ? 'Blog' : ucfirst($slug),
+            'post_title' => 'Content Studio Articles',
             'post_name' => $slug,
             'post_type' => 'page',
             'post_status' => 'publish',

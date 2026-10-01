@@ -136,20 +136,6 @@ class Content_Studio_Language
         return self::normalize(get_locale());
     }
 
-    /**
-     * Where primary_locale came from, for the settings screen.
-     *
-     * @return string 'engine' | 'articles' | 'site'
-     */
-    public static function primary_locale_source()
-    {
-        if ('' !== self::normalize((string) get_option('content_studio_engine_primary_locale', ''))) {
-            return 'engine';
-        }
-
-        return '' !== self::most_common_locale() ? 'articles' : 'site';
-    }
-
     public static function most_common_locale()
     {
         static $cache = null;

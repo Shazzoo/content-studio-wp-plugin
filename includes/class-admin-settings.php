@@ -153,8 +153,8 @@ class Content_Studio_Admin_Settings
 
         add_settings_section(
             'content_studio_api_section',
-            'API Settings',
-            '__return_empty_string',
+            'Connection Settings',
+            [$this, 'render_api_section'],
             'content-studio'
         );
 
@@ -174,36 +174,11 @@ class Content_Studio_Admin_Settings
             'content_studio_api_section'
         );
 
-        add_settings_field(
-            Content_Studio_Language::PUBLISHED_OPTION,
-            'Published Languages',
-            [$this, 'render_published_locales_field'],
-            'content-studio',
-            'content_studio_api_section'
-        );
-
-        add_settings_field(
-            'content_studio_article_locale',
-            'Default Language',
-            [$this, 'render_article_locale_field'],
-            'content-studio',
-            'content_studio_api_section'
-        );
-
-        add_settings_field(
-            Content_Studio_Language::DEFAULT_CODE_OPTION,
-            'Language Code in URLs',
-            [$this, 'render_default_code_field'],
-            'content-studio',
-            'content_studio_api_section'
-        );
-
-        add_settings_field(
-            'content_studio_category_name',
-            'Article Category',
-            [$this, 'render_category_field'],
-            'content-studio',
-            'content_studio_api_section'
+        add_settings_section(
+            'content_studio_blog_section',
+            'Blog Settings',
+            [$this, 'render_blog_section'],
+            'content-studio'
         );
 
         add_settings_field(
@@ -211,7 +186,7 @@ class Content_Studio_Admin_Settings
             'Blog URL',
             [$this, 'render_blog_slug_field'],
             'content-studio',
-            'content_studio_api_section'
+            'content_studio_blog_section'
         );
 
         add_settings_field(
@@ -219,7 +194,15 @@ class Content_Studio_Admin_Settings
             'Articles per Page',
             [$this, 'render_articles_per_page_field'],
             'content-studio',
-            'content_studio_api_section'
+            'content_studio_blog_section'
+        );
+
+        add_settings_field(
+            'content_studio_category_name',
+            'Article Category',
+            [$this, 'render_category_field'],
+            'content-studio',
+            'content_studio_blog_section'
         );
 
         add_settings_field(
@@ -227,7 +210,38 @@ class Content_Studio_Admin_Settings
             'Fallback Author',
             [$this, 'render_fallback_author_field'],
             'content-studio',
-            'content_studio_api_section'
+            'content_studio_blog_section'
+        );
+
+        add_settings_section(
+            'content_studio_language_section',
+            'Language Settings',
+            [$this, 'render_language_section'],
+            'content-studio'
+        );
+
+        add_settings_field(
+            Content_Studio_Language::PUBLISHED_OPTION,
+            'Published Languages',
+            [$this, 'render_published_locales_field'],
+            'content-studio',
+            'content_studio_language_section'
+        );
+
+        add_settings_field(
+            'content_studio_article_locale',
+            'Default Language',
+            [$this, 'render_article_locale_field'],
+            'content-studio',
+            'content_studio_language_section'
+        );
+
+        add_settings_field(
+            Content_Studio_Language::DEFAULT_CODE_OPTION,
+            'Language Code in URLs',
+            [$this, 'render_default_code_field'],
+            'content-studio',
+            'content_studio_language_section'
         );
 
         add_settings_section(
@@ -347,33 +361,16 @@ class Content_Studio_Admin_Settings
 
     public function render_article_locale_field()
     {
-        $selected = (string) get_option('content_studio_article_locale', '');
-        $primary = Content_Studio_Language::primary_locale();
-        $source = Content_Studio_Language::primary_locale_source();
+        $stored = (string) get_option('content_studio_article_locale', '');
         $published = Content_Studio_Language::published_locales();
         $all = Content_Studio_Language::all_locales() ?: $published;
+        $main = Content_Studio_Language::primary_locale();
 
-        $source_label = [
-            'engine' => 'from Content Studio',
-            'articles' => 'most common in synced articles',
-            'site' => 'site language',
-        ][$source];
+        // Zonder geldige keuze staat de hoofdtaal geselecteerd, of de eerste
+        // gepubliceerde taal als de hoofdtaal niet gepubliceerd is.
+        $selected = 'all' === $stored && count($published) > 1 ? 'all' : Content_Studio_Language::default_locale();
 
-        echo '<select name="content_studio_article_locale" id="content_studio_article_locale" class="regular-text">';
-
-        // Volgen kan alleen een gepubliceerde taal; anders valt het terug op
-        // de eerste gepubliceerde.
-        if ('' === $primary || in_array($primary, $published, true) || [] === $published) {
-            $follow_label = sprintf('Follow the main language (now %s, %s)', strtoupper($primary ?: '?'), $source_label);
-        } else {
-            $follow_label = sprintf('Follow the main language (%s is not published, so %s)', strtoupper($primary), strtoupper($published[0]));
-        }
-
-        printf(
-            '<option value=""%s>%s</option>',
-            selected($selected, '', false),
-            esc_html($follow_label)
-        );
+        printf('<select name="content_studio_article_locale" id="content_studio_article_locale" class="regular-text" data-main="%s">', esc_attr($main));
 
         foreach ($all as $locale) {
             printf(
@@ -381,7 +378,7 @@ class Content_Studio_Admin_Settings
                 esc_attr($locale),
                 selected($selected, $locale, false),
                 disabled(!in_array($locale, $published, true), true, false),
-                esc_html(strtoupper($locale))
+                esc_html(strtoupper($locale) . ($locale === $main ? ' (main language)' : ''))
             );
         }
 
@@ -393,19 +390,7 @@ class Content_Studio_Admin_Settings
 
         echo '</select>';
 
-        echo '<p class="description">The language /blog and the Latest Posts block show. Following the main language uses the Content Studio project\'s main language, or the first published language when that one is not published. Languages that are not published cannot be chosen.</p>';
-
-        if (!in_array($selected, ['', 'all'], true) && !in_array($selected, $published, true)) {
-            printf(
-                '<p class="description" style="color: #b26200;">%s is not published, so /blog shows %s. Saving switches this setting to following the main language.</p>',
-                esc_html(strtoupper($selected)),
-                esc_html(strtoupper(Content_Studio_Language::default_locale()))
-            );
-        }
-
-        if ('engine' !== $source) {
-            echo '<p class="description">Content Studio has not sent this project\'s main language yet, so it is inferred.</p>';
-        }
+        echo '<p class="description">The language /blog and the Latest Posts block show. Only published languages can be chosen.</p>';
 
         // Keeps the choices in step with the Published Languages checkboxes
         // before the settings are saved.
@@ -436,8 +421,10 @@ class Content_Studio_Admin_Settings
                         }
                     });
 
+                    // A choice that is no longer published moves to the main
+                    // language, or else the first published one.
                     if (select.selectedOptions[0] && select.selectedOptions[0].disabled) {
-                        select.value = '';
+                        select.value = checked.indexOf(select.dataset.main) !== -1 ? select.dataset.main : (checked[0] || '');
                     }
                 }
 
@@ -694,6 +681,21 @@ class Content_Studio_Admin_Settings
         ]);
 
         echo '<p class="description">Used when an article from the API does not include an author.</p>';
+    }
+
+    public function render_api_section()
+    {
+        echo '<p>Connect the plugin to your Content Studio project.</p>';
+    }
+
+    public function render_blog_section()
+    {
+        echo '<p>Where the articles live on this site and how they are stored.</p>';
+    }
+
+    public function render_language_section()
+    {
+        echo '<p>Which of the project\'s languages go live, and how their URLs look.</p>';
     }
 
     public function render_style_section()

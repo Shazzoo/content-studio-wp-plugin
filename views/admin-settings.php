@@ -55,6 +55,8 @@ function content_studio_render_settings_section($page, $section_id)
         <?php
         settings_fields('content_studio_settings');
         content_studio_render_settings_section('content-studio', 'content_studio_api_section');
+        content_studio_render_settings_section('content-studio', 'content_studio_blog_section');
+        content_studio_render_settings_section('content-studio', 'content_studio_language_section');
         ?>
 
         <div class="content-studio-settings-layout">
