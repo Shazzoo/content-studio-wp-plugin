@@ -431,6 +431,35 @@ class Content_Studio_Language
     }
 
     /**
+     * Gives a synced article its language in Polylang or WPML when it has
+     * none there yet, e.g. because it was synced before that plugin was
+     * installed. Articles that already have one are left alone.
+     */
+    public static function ensure_post_language($post_id)
+    {
+        $mode = self::mode();
+
+        if ('polylang' === $mode && function_exists('pll_get_post_language')) {
+            $has_language = (bool) pll_get_post_language($post_id);
+        } elseif ('wpml' === $mode) {
+            $has_language = (bool) apply_filters('wpml_element_language_code', null, [
+                'element_id' => $post_id,
+                'element_type' => 'post_' . content_studio_post_type(),
+            ]);
+        } else {
+            return;
+        }
+
+        if (!$has_language) {
+            self::assign_post_language(
+                $post_id,
+                (string) get_post_meta($post_id, '_content_studio_locale', true),
+                (string) get_post_meta($post_id, '_content_studio_cluster_key', true)
+            );
+        }
+    }
+
+    /**
      * The posts sharing one cluster_key, keyed by language.
      *
      * cluster_key groups an article with its translations. It is only trusted
@@ -450,6 +479,8 @@ class Content_Studio_Language
 
         $post_ids = get_posts([
             'post_type' => content_studio_post_type(),
+            // Every language: Polylang otherwise narrows this to the current one.
+            'lang' => '',
             'post_status' => 'any',
             'posts_per_page' => 50,
             'fields' => 'ids',

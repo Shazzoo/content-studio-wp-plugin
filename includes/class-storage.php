@@ -117,12 +117,16 @@ class Content_Studio_Storage
      * publishes become drafts, and the drafts the plugin made for a language
      * that is published again go back live. Confirmed articles do not come
      * back in the sync, so this cannot wait for it.
+     *
+     * It also runs when Polylang or WPML is switched on, and then gives every
+     * article without a language there its language from the Engine;
+     * otherwise articles synced before stay invisible to that plugin.
      */
     public static function maybe_apply_published_locales()
     {
         $published = Content_Studio_Language::published_locales();
         sort($published);
-        $key = implode(',', $published);
+        $key = Content_Studio_Language::mode() . '|' . implode(',', $published);
 
         if (get_option(self::APPLIED_LOCALES_OPTION, null) === $key) {
             return;
@@ -133,6 +137,8 @@ class Content_Studio_Storage
 
         $post_ids = get_posts([
             'post_type' => content_studio_post_type(),
+            // Every language: Polylang otherwise narrows this to the current one.
+            'lang' => '',
             'post_status' => ['publish', 'draft'],
             'posts_per_page' => -1,
             'fields' => 'ids',
@@ -140,6 +146,8 @@ class Content_Studio_Storage
         ]);
 
         foreach ($post_ids as $post_id) {
+            Content_Studio_Language::ensure_post_language($post_id);
+
             $hidden = !Content_Studio_Language::is_published_locale(Content_Studio_Language::for_post($post_id));
             $status = get_post_status($post_id);
 
@@ -151,12 +159,17 @@ class Content_Studio_Storage
                 wp_update_post(['ID' => $post_id, 'post_status' => 'publish']);
             }
         }
+
+        // A newly published language needs its overview page with Polylang.
+        Content_Studio_Blog_Route::ensure_blog_page();
     }
 
     public static function count_posts()
     {
         $query = new WP_Query([
             'post_type' => content_studio_post_type(),
+            // Every language: Polylang otherwise narrows this to the current one.
+            'lang' => '',
             'posts_per_page' => 1,
             'fields' => 'ids',
             'no_found_rows' => false,
@@ -739,6 +752,8 @@ class Content_Studio_Storage
     {
         $posts = get_posts([
             'post_type' => content_studio_post_type(),
+            // Every language: Polylang otherwise narrows this to the current one.
+            'lang' => '',
             'post_status' => 'any',
             'posts_per_page' => 1,
             'fields' => 'all',

@@ -23,6 +23,8 @@ class Content_Studio_Blog_Route
      */
     const SLUG_OVERRIDES_OPTION = 'content_studio_blog_slugs';
 
+    const PAGE_CONTENT = '<!-- wp:shortcode -->[content_studio_blog]<!-- /wp:shortcode -->';
+
     const LEGACY_QUERY_VAR = 'cs_legacy_blog';
 
     const LEGACY_PATH_QUERY_VAR = 'cs_legacy_path';
@@ -126,15 +128,15 @@ class Content_Studio_Blog_Route
     }
 
     /**
-     * Per language its own URL, from the advanced setting. Only for posts on
-     * a standalone site: Polylang and WPML translate the page's URL
-     * themselves, and a custom post type has a single slug.
+     * Per language its own URL, from the advanced setting. Only for posts
+     * (a custom post type has a single slug), on a standalone site or with
+     * Polylang, where it is the address of the language's overview page.
      *
      * @return array<string, string> language => slug
      */
     public static function slug_overrides()
     {
-        if ('post' !== content_studio_post_type() || !Content_Studio_Language::is_standalone()) {
+        if ('post' !== content_studio_post_type() || 'wpml' === Content_Studio_Language::mode()) {
             return [];
         }
 
@@ -161,6 +163,11 @@ class Content_Studio_Blog_Route
     private static function slugs_without_code()
     {
         $slugs = [content_studio_blog_slug()];
+
+        // With Polylang every language has its own page, at its own address.
+        if (!Content_Studio_Language::is_standalone()) {
+            return $slugs;
+        }
 
         foreach (Content_Studio_Language::published_locales() as $locale) {
             if ('' === Content_Studio_Language::url_prefix($locale)) {
@@ -486,26 +493,94 @@ class Content_Studio_Blog_Route
         flush_rewrite_rules();
     }
 
-
     /**
      * The overview page lives at the blog slug and renders the shortcode.
+     * With Polylang every published language gets its own, see
+     * ensure_language_pages().
      */
     public static function ensure_blog_page()
     {
         $slug = content_studio_blog_slug();
         $page = get_page_by_path($slug);
 
-        if ($page instanceof WP_Post && 'page' === $page->post_type) {
+        if (!$page instanceof WP_Post || 'page' !== $page->post_type) {
+            $page_id = wp_insert_post([
+                'post_title' => 'Content Studio Articles',
+                'post_name' => $slug,
+                'post_type' => 'page',
+                'post_status' => 'publish',
+                'post_content' => self::PAGE_CONTENT,
+            ]);
+
+            $page = $page_id && !is_wp_error($page_id) ? get_post($page_id) : null;
+        }
+
+        if ($page instanceof WP_Post) {
+            self::ensure_language_pages($page);
+        }
+    }
+
+    /**
+     * Polylang takes a page's language from the page itself, so one overview
+     * cannot show every language as it does standalone: each published
+     * language needs a page of its own, linked as a translation. Free Polylang
+     * wants a unique address per page, so a language's page lives at its own
+     * URL from the advanced setting, or at {blog slug}-{language}.
+     *
+     * Pages that exist are kept, and only moved when their address should
+     * change.
+     *
+     * @param WP_Post $page The overview page at the blog slug.
+     */
+    private static function ensure_language_pages($page)
+    {
+        if ('polylang' !== Content_Studio_Language::mode() || !function_exists('pll_save_post_translations')) {
             return;
         }
 
-        wp_insert_post([
-            'post_title' => 'Content Studio Articles',
-            'post_name' => $slug,
-            'post_type' => 'page',
-            'post_status' => 'publish',
-            'post_content' => '<!-- wp:shortcode -->[content_studio_blog]<!-- /wp:shortcode -->',
-        ]);
+        if (!pll_get_post_language($page->ID)) {
+            pll_set_post_language($page->ID, pll_default_language());
+        }
+
+        $page_language = pll_get_post_language($page->ID);
+        $translations = pll_get_post_translations($page->ID) ?: [$page_language => $page->ID];
+        $overrides = self::slug_overrides();
+        $published = array_intersect(Content_Studio_Language::available(), Content_Studio_Language::published_locales());
+
+        foreach ($published as $locale) {
+            if ($locale === $page_language) {
+                continue;
+            }
+
+            $slug = isset($overrides[$locale]) ? $overrides[$locale] : content_studio_blog_slug() . '-' . $locale;
+
+            if (isset($translations[$locale])) {
+                $existing = get_post($translations[$locale]);
+
+                if ($existing instanceof WP_Post && $existing->post_name !== $slug && has_shortcode((string) $existing->post_content, 'content_studio_blog')) {
+                    wp_update_post(['ID' => $existing->ID, 'post_name' => $slug]);
+                }
+
+                continue;
+            }
+
+            $page_id = wp_insert_post([
+                'post_title' => 'Content Studio Articles',
+                'post_name' => $slug,
+                'post_type' => 'page',
+                'post_status' => 'publish',
+                'post_content' => self::PAGE_CONTENT,
+            ]);
+
+            if (!$page_id || is_wp_error($page_id)) {
+                continue;
+            }
+
+            pll_set_post_language($page_id, $locale);
+            $translations[$locale] = $page_id;
+        }
+
+        pll_save_post_translations($translations);
     }
 
     /**

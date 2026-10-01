@@ -559,8 +559,8 @@ class Content_Studio_Admin_Settings
 
         $locales = Content_Studio_Language::all_locales();
 
-        // Polylang en WPML vertalen de URL van de pagina zelf.
-        if (!Content_Studio_Language::is_standalone() || [] === $locales) {
+        // WPML vertaalt de URL van de pagina zelf.
+        if ('wpml' === Content_Studio_Language::mode() || [] === $locales) {
             return;
         }
 
@@ -574,7 +574,7 @@ class Content_Studio_Admin_Settings
                 '<tr><th scope="row" style="padding: 4px 12px 4px 0; width: auto; font-weight: 600;"><label for="content-studio-slug-%1$s">%2$s</label></th><td style="padding: 4px 0;"><code>%3$s</code><input type="text" id="content-studio-slug-%1$s" name="%4$s[%1$s]" value="%5$s" placeholder="%6$s" class="regular-text" style="width: 14em;" /></td></tr>',
                 esc_attr($locale),
                 esc_html(strtoupper($locale)),
-                esc_html(home_url(Content_Studio_Language::url_prefix($locale) . '/')),
+                esc_html(Content_Studio_Language::is_standalone() ? home_url(Content_Studio_Language::url_prefix($locale) . '/') : trailingslashit(pll_home_url($locale))),
                 esc_attr(Content_Studio_Blog_Route::SLUG_OVERRIDES_OPTION),
                 esc_attr(isset($overrides[$locale]) ? $overrides[$locale] : ''),
                 esc_attr($slug)
@@ -582,6 +582,13 @@ class Content_Studio_Admin_Settings
         }
 
         echo '</table>';
+
+        if (!Content_Studio_Language::is_standalone()) {
+            printf(
+                '<p class="description">With Polylang each language has its own overview page; this is its address. Empty gives /%1$s-{language}.</p>',
+                esc_html($slug)
+            );
+        }
 
         printf(
             '<p class="description">Empty uses the Blog URL (/%1$s). For example <code>knowledge</code> for EN gives /en/knowledge and /en/knowledge/{article}, while the other languages keep /%1$s. Old URLs redirect after a change.</p>',
