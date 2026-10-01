@@ -585,7 +585,8 @@ class Content_Studio_Blog_Route
 
     /**
      * Rebuilds the rewrite rules once after an update, and again whenever the
-     * post type, its slug or the previous slugs change.
+     * article URLs change: the post type, a slug, the previous slugs or which
+     * languages carry a code.
      */
     public static function maybe_flush_rewrite_rules()
     {
@@ -595,7 +596,44 @@ class Content_Studio_Blog_Route
 
         self::ensure_blog_page();
         flush_rewrite_rules();
+        self::refresh_seo_plugin_urls();
         update_option('content_studio_rewrite_version', self::rewrite_version());
+    }
+
+    /**
+     * Yoast stores each post's URL once and does not see URL changes made
+     * through this plugin's filters, so its canonical, og:url and schema
+     * would keep pointing at the old URL. Emptying them makes Yoast rebuild
+     * each one on the article's next visit.
+     */
+    private static function refresh_seo_plugin_urls()
+    {
+        if (!function_exists('YoastSEO')) {
+            return;
+        }
+
+        try {
+            YoastSEO()->helpers->indexable->reset_permalink_indexables('post', content_studio_post_type());
+        } catch (Throwable $e) {
+            // A Yoast version without this helper keeps its stored URLs; the
+            // site itself is unaffected.
+        }
+    }
+
+    /**
+     * What every language's article URLs look like: /nl/kennis, /knowledge.
+     *
+     * @return string
+     */
+    private static function url_shape()
+    {
+        $parts = [];
+
+        foreach (Content_Studio_Language::all_locales() as $locale) {
+            $parts[] = $locale . '=' . Content_Studio_Language::url_prefix($locale) . '/' . content_studio_blog_slug($locale);
+        }
+
+        return implode(',', $parts);
     }
 
     /**
@@ -603,7 +641,7 @@ class Content_Studio_Blog_Route
      */
     private static function rewrite_version()
     {
-        return CONTENT_STUDIO_REWRITE_VERSION . '|' . content_studio_post_type() . '|' . content_studio_blog_slug() . '|' . implode(',', self::previous_slugs()) . '|' . wp_json_encode(self::slug_overrides()) . '|' . implode(',', self::slugs_without_code());
+        return CONTENT_STUDIO_REWRITE_VERSION . '|' . content_studio_post_type() . '|' . content_studio_blog_slug() . '|' . implode(',', self::previous_slugs()) . '|' . wp_json_encode(self::slug_overrides()) . '|' . implode(',', self::slugs_without_code()) . '|' . self::url_shape();
     }
 
     public function register_shortcode()
