@@ -20,16 +20,6 @@ class Content_Studio_REST_Routes
                 },
             ]
         );
-
-        register_rest_route(
-            'content-studio/v1',
-            '/content',
-            [
-                'methods' => 'GET',
-                'callback' => [$this, 'get_content'],
-                'permission_callback' => '__return_true',
-            ]
-        );
     }
 
     public function sync_content()
@@ -46,10 +36,5 @@ class Content_Studio_REST_Routes
             'success' => true,
             'saved' => $saved,
         ]);
-    }
-
-    public function get_content()
-    {
-        return rest_ensure_response(Content_Studio_Storage::get());
     }
 }

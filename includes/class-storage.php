@@ -37,20 +37,6 @@ class Content_Studio_Storage
         return $saved;
     }
 
-    public static function get()
-    {
-        $posts = get_posts([
-            'post_type' => 'post',
-            'post_status' => ['publish', 'draft', 'pending', 'future', 'private'],
-            'posts_per_page' => -1,
-            'orderby' => 'date',
-            'order' => 'DESC',
-            'meta_query' => self::article_meta_query(),
-        ]);
-
-        return array_map([self::class, 'format_post'], $posts);
-    }
-
     /**
      * Meta query matching synced articles, narrowed to one language unless the
      * site is configured to show every language.
@@ -894,21 +880,6 @@ class Content_Studio_Storage
             'ID' => $attachment_id,
             'post_author' => $author_id,
         ]);
-    }
-
-    private static function format_post($post)
-    {
-        return [
-            'id' => $post->ID,
-            'external_id' => get_post_meta($post->ID, '_content_studio_external_id', true),
-            'title' => get_the_title($post),
-            'content' => apply_filters('the_content', $post->post_content),
-            'excerpt' => $post->post_excerpt,
-            'image_url' => get_post_meta($post->ID, '_content_studio_image_url', true),
-            'image_attachment_id' => get_post_thumbnail_id($post->ID),
-            'published_at' => $post->post_date_gmt,
-            'link' => get_permalink($post),
-        ];
     }
 
     private static function format_datetime($value)
