@@ -45,6 +45,27 @@ class Content_Studio_Admin_Settings
 
         register_setting(
             'content_studio_settings',
+            Content_Studio_Language::PUBLISHED_OPTION,
+            [
+                'type' => 'array',
+                'sanitize_callback' => [$this, 'sanitize_published_locales'],
+            ]
+        );
+
+        register_setting(
+            'content_studio_settings',
+            Content_Studio_Language::DEFAULT_CODE_OPTION,
+            [
+                'type' => 'boolean',
+                'sanitize_callback' => static function ($value) {
+                    return !empty($value) ? 1 : 0;
+                },
+                'default' => 1,
+            ]
+        );
+
+        register_setting(
+            'content_studio_settings',
             'content_studio_article_locale',
             [
                 'type' => 'string',
@@ -60,6 +81,27 @@ class Content_Studio_Admin_Settings
                 'type' => 'string',
                 'sanitize_callback' => 'sanitize_text_field',
                 'default' => '',
+            ]
+        );
+
+        register_setting(
+            'content_studio_settings',
+            Content_Studio_Blog_Route::SLUG_OPTION,
+            [
+                'type' => 'string',
+                'sanitize_callback' => [$this, 'sanitize_blog_slug'],
+                'default' => Content_Studio_Blog_Route::DEFAULT_SLUG,
+            ]
+        );
+
+        // Na de Blog URL, zodat de controle de nieuwe waarde ziet.
+        register_setting(
+            'content_studio_settings',
+            Content_Studio_Blog_Route::SLUG_OVERRIDES_OPTION,
+            [
+                'type' => 'array',
+                'sanitize_callback' => [$this, 'sanitize_blog_slug_overrides'],
+                'default' => [],
             ]
         );
 
@@ -133,9 +175,25 @@ class Content_Studio_Admin_Settings
         );
 
         add_settings_field(
+            Content_Studio_Language::PUBLISHED_OPTION,
+            'Published Languages',
+            [$this, 'render_published_locales_field'],
+            'content-studio',
+            'content_studio_api_section'
+        );
+
+        add_settings_field(
             'content_studio_article_locale',
-            'Article Language',
+            'Default Language',
             [$this, 'render_article_locale_field'],
+            'content-studio',
+            'content_studio_api_section'
+        );
+
+        add_settings_field(
+            Content_Studio_Language::DEFAULT_CODE_OPTION,
+            'Language Code in URLs',
+            [$this, 'render_default_code_field'],
             'content-studio',
             'content_studio_api_section'
         );
@@ -144,6 +202,14 @@ class Content_Studio_Admin_Settings
             'content_studio_category_name',
             'Article Category',
             [$this, 'render_category_field'],
+            'content-studio',
+            'content_studio_api_section'
+        );
+
+        add_settings_field(
+            Content_Studio_Blog_Route::SLUG_OPTION,
+            'Blog URL',
+            [$this, 'render_blog_slug_field'],
             'content-studio',
             'content_studio_api_section'
         );
@@ -284,7 +350,8 @@ class Content_Studio_Admin_Settings
         $selected = (string) get_option('content_studio_article_locale', '');
         $primary = Content_Studio_Language::primary_locale();
         $source = Content_Studio_Language::primary_locale_source();
-        $available = Content_Studio_Storage::get_available_locales();
+        $published = Content_Studio_Language::published_locales();
+        $all = Content_Studio_Language::all_locales() ?: $published;
 
         $source_label = [
             'engine' => 'from Content Studio',
@@ -292,45 +359,184 @@ class Content_Studio_Admin_Settings
             'site' => 'site language',
         ][$source];
 
-        $choices = [
-            '' => sprintf('Default: %s (%s)', strtoupper($primary ?: 'unknown'), $source_label),
-        ];
-
-        foreach ($available as $locale) {
-            $choices[$locale] = strtoupper($locale);
-        }
-
-        $choices['all'] = 'All languages';
-
         echo '<select name="content_studio_article_locale" id="content_studio_article_locale" class="regular-text">';
 
-        foreach ($choices as $value => $label) {
+        // Volgen kan alleen een gepubliceerde taal; anders valt het terug op
+        // de eerste gepubliceerde.
+        if ('' === $primary || in_array($primary, $published, true) || [] === $published) {
+            $follow_label = sprintf('Follow the main language (now %s, %s)', strtoupper($primary ?: '?'), $source_label);
+        } else {
+            $follow_label = sprintf('Follow the main language (%s is not published, so %s)', strtoupper($primary), strtoupper($published[0]));
+        }
+
+        printf(
+            '<option value=""%s>%s</option>',
+            selected($selected, '', false),
+            esc_html($follow_label)
+        );
+
+        foreach ($all as $locale) {
             printf(
-                '<option value="%s"%s>%s</option>',
-                esc_attr($value),
-                selected($selected, $value, false),
-                esc_html($label)
+                '<option value="%1$s" data-locale="%1$s"%2$s%3$s>%4$s</option>',
+                esc_attr($locale),
+                selected($selected, $locale, false),
+                disabled(!in_array($locale, $published, true), true, false),
+                esc_html(strtoupper($locale))
             );
         }
 
+        printf(
+            '<option value="all" data-all="1"%s%s>All published languages</option>',
+            selected($selected, 'all', false),
+            disabled(count($published) < 2, true, false)
+        );
+
         echo '</select>';
 
-        echo '<p class="description">Which language to show on the blog and in the Latest Posts block. Articles in other languages stay synced but are reached through their own /{lang}/blog URL.</p>';
+        echo '<p class="description">The language /blog and the Latest Posts block show. Following the main language uses the Content Studio project\'s main language, or the first published language when that one is not published. Languages that are not published cannot be chosen.</p>';
+
+        if (!in_array($selected, ['', 'all'], true) && !in_array($selected, $published, true)) {
+            printf(
+                '<p class="description" style="color: #b26200;">%s is not published, so /blog shows %s. Saving switches this setting to following the main language.</p>',
+                esc_html(strtoupper($selected)),
+                esc_html(strtoupper(Content_Studio_Language::default_locale()))
+            );
+        }
 
         if ('engine' !== $source) {
-            echo '<p class="description">Content Studio has not sent this project\'s primary language yet, so the default above is inferred.</p>';
+            echo '<p class="description">Content Studio has not sent this project\'s main language yet, so it is inferred.</p>';
+        }
+
+        // Keeps the choices in step with the Published Languages checkboxes
+        // before the settings are saved.
+        ?>
+        <script>
+            (function () {
+                var select = document.getElementById('content_studio_article_locale');
+                var boxes = document.querySelectorAll('input[name="<?php echo esc_js(Content_Studio_Language::PUBLISHED_OPTION); ?>[]"]');
+
+                if (!select || !boxes.length) {
+                    return;
+                }
+
+                function sync() {
+                    var checked = [];
+
+                    boxes.forEach(function (box) {
+                        if (box.checked) {
+                            checked.push(box.value);
+                        }
+                    });
+
+                    Array.prototype.forEach.call(select.options, function (option) {
+                        if (option.dataset.locale) {
+                            option.disabled = checked.indexOf(option.dataset.locale) === -1;
+                        } else if (option.dataset.all) {
+                            option.disabled = checked.length < 2;
+                        }
+                    });
+
+                    if (select.selectedOptions[0] && select.selectedOptions[0].disabled) {
+                        select.value = '';
+                    }
+                }
+
+                boxes.forEach(function (box) {
+                    box.addEventListener('change', sync);
+                });
+            })();
+        </script>
+        <?php
+    }
+
+    public function render_published_locales_field()
+    {
+        $all = Content_Studio_Language::all_locales();
+        $published = Content_Studio_Language::published_locales();
+
+        if ([] === $all) {
+            echo '<p class="description">The languages appear here after the first sync.</p>';
+
+            return;
+        }
+
+        foreach ($all as $locale) {
+            printf(
+                '<label style="margin-right: 16px;"><input type="checkbox" name="%1$s[]" value="%2$s"%3$s /> %4$s</label>',
+                esc_attr(Content_Studio_Language::PUBLISHED_OPTION),
+                esc_attr($locale),
+                checked(in_array($locale, $published, true), true, false),
+                esc_html(strtoupper($locale))
+            );
+        }
+
+        echo '<p class="description">Articles in other languages are synced as drafts: not on the site and not confirmed to Content Studio. With one language the URLs have no language code: /blog/{article}.</p>';
+
+        if (!Content_Studio_Language::is_standalone()) {
+            echo '<p class="description">Polylang or WPML decides the language URLs; this setting only decides which articles go live.</p>';
         }
     }
 
+    /**
+     * At least one language; an empty selection keeps the current one.
+     */
+    public function sanitize_published_locales($value)
+    {
+        // No checkboxes on the page yet (no languages known): leave it unset.
+        if (null === $value) {
+            return get_option(Content_Studio_Language::PUBLISHED_OPTION, null);
+        }
+
+        $locales = array_values(array_unique(array_filter(array_map(
+            [Content_Studio_Language::class, 'normalize'],
+            (array) $value
+        ))));
+
+        if ([] === $locales) {
+            add_settings_error(Content_Studio_Language::PUBLISHED_OPTION, 'content_studio_published_locales', 'Publish at least one language.');
+
+            return Content_Studio_Language::published_locales();
+        }
+
+        return $locales;
+    }
+
+    public function render_default_code_field()
+    {
+        printf(
+            '<label><input type="hidden" name="%1$s" value="0" /><input type="checkbox" name="%1$s" value="1"%2$s /> Use the language code for the default language too</label>',
+            esc_attr(Content_Studio_Language::DEFAULT_CODE_OPTION),
+            checked(Content_Studio_Language::default_code_in_url(), true, false)
+        );
+
+        $slug = content_studio_blog_slug();
+
+        printf(
+            '<p class="description">Only with more than one published language. On: /nl/%1$s/{article} for every language. Off: /%1$s/{article} for the default language, /en/%1$s/{article} for the others. Old URLs redirect.</p>',
+            esc_html($slug)
+        );
+    }
+
+    /**
+     * Saved after the published languages, so a language that was just
+     * unpublished falls back to following the main language.
+     */
     public function sanitize_article_locale($value)
     {
         $value = trim((string) $value);
+        $published = Content_Studio_Language::published_locales();
 
-        if ('' === $value || 'all' === $value) {
+        if ('' === $value) {
             return $value;
         }
 
-        return Content_Studio_Storage::normalize_locale($value);
+        if ('all' === $value) {
+            return count($published) > 1 ? $value : '';
+        }
+
+        $locale = Content_Studio_Storage::normalize_locale($value);
+
+        return in_array($locale, $published, true) ? $locale : '';
     }
 
     public function render_category_field()
@@ -340,6 +546,124 @@ class Content_Studio_Admin_Settings
             esc_attr(get_option('content_studio_category_name', '')),
             esc_attr(Content_Studio_Storage::get_default_category_name())
         );
+    }
+
+    public function render_blog_slug_field()
+    {
+        $slug = content_studio_blog_slug();
+
+        // Een eigen post type bepaalt zijn URL zelf, via zijn rewrite-slug.
+        if ('post' !== content_studio_post_type()) {
+            printf(
+                '<code>%1$s</code> <p class="description">Set by the post type <code>%2$s</code>; change its rewrite slug to change this URL.</p>',
+                esc_html(home_url('/' . $slug)),
+                esc_html(content_studio_post_type())
+            );
+
+            return;
+        }
+
+        printf(
+            '<code>%1$s</code><input type="text" name="%2$s" value="%3$s" class="regular-text" style="width: 14em;" /> <p class="description">The blog lives at /%3$s and /{language}/%3$s, articles at /{language}/%3$s/{article}. After a change the old URLs redirect to the new ones.</p>',
+            esc_html(trailingslashit(home_url())),
+            esc_attr(Content_Studio_Blog_Route::SLUG_OPTION),
+            esc_attr($slug)
+        );
+
+        $locales = Content_Studio_Language::all_locales();
+
+        // Polylang en WPML vertalen de URL van de pagina zelf.
+        if (!Content_Studio_Language::is_standalone() || [] === $locales) {
+            return;
+        }
+
+        $overrides = Content_Studio_Blog_Route::slug_overrides();
+
+        printf('<details style="margin-top: 12px;"%s><summary style="cursor: pointer;">Advanced: a different URL per language</summary>', [] !== $overrides ? ' open' : '');
+        echo '<table role="presentation" style="margin-top: 8px;">';
+
+        foreach ($locales as $locale) {
+            printf(
+                '<tr><th scope="row" style="padding: 4px 12px 4px 0; width: auto; font-weight: 600;"><label for="content-studio-slug-%1$s">%2$s</label></th><td style="padding: 4px 0;"><code>%3$s</code><input type="text" id="content-studio-slug-%1$s" name="%4$s[%1$s]" value="%5$s" placeholder="%6$s" class="regular-text" style="width: 14em;" /></td></tr>',
+                esc_attr($locale),
+                esc_html(strtoupper($locale)),
+                esc_html(home_url(Content_Studio_Language::url_prefix($locale) . '/')),
+                esc_attr(Content_Studio_Blog_Route::SLUG_OVERRIDES_OPTION),
+                esc_attr(isset($overrides[$locale]) ? $overrides[$locale] : ''),
+                esc_attr($slug)
+            );
+        }
+
+        echo '</table>';
+
+        printf(
+            '<p class="description">Empty uses the Blog URL (/%1$s). For example <code>knowledge</code> for EN gives /en/knowledge and /en/knowledge/{article}, while the other languages keep /%1$s. Old URLs redirect after a change.</p>',
+            esc_html($slug)
+        );
+        echo '</details>';
+    }
+
+    /**
+     * Per language a URL of its own; empty, or the same as the Blog URL,
+     * means none. A URL that clashes keeps the language's previous one.
+     */
+    public function sanitize_blog_slug_overrides($value)
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $global = content_studio_blog_slug();
+        $current = Content_Studio_Blog_Route::slug_overrides();
+        $result = [];
+
+        foreach ($value as $locale => $slug) {
+            $locale = Content_Studio_Language::normalize((string) $locale);
+            $slug = sanitize_title((string) $slug);
+
+            if ('' === $locale || '' === $slug || $slug === $global) {
+                continue;
+            }
+
+            $error = isset($current[$locale]) && $current[$locale] === $slug ? '' : Content_Studio_Blog_Route::slug_error($slug);
+
+            if ('' !== $error) {
+                add_settings_error(Content_Studio_Blog_Route::SLUG_OVERRIDES_OPTION, 'content_studio_blog_slug_' . $locale, strtoupper($locale) . ': ' . $error);
+
+                if (isset($current[$locale])) {
+                    $result[$locale] = $current[$locale];
+                }
+
+                continue;
+            }
+
+            $result[$locale] = $slug;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Keeps the current URL and shows why when the new one would clash with
+     * a page, a language code or a WordPress path.
+     */
+    public function sanitize_blog_slug($value)
+    {
+        $slug = sanitize_title((string) $value);
+
+        if ('' === $slug) {
+            $slug = Content_Studio_Blog_Route::DEFAULT_SLUG;
+        }
+
+        $error = Content_Studio_Blog_Route::slug_error($slug);
+
+        if ('' !== $error) {
+            add_settings_error(Content_Studio_Blog_Route::SLUG_OPTION, 'content_studio_blog_slug', $error);
+
+            return content_studio_blog_slug();
+        }
+
+        return $slug;
     }
 
     public function render_articles_per_page_field()

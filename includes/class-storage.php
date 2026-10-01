@@ -10,6 +10,18 @@ class Content_Studio_Storage
      */
     const SYNCABLE_STATUSES = ['approved', 'published'];
 
+    /**
+     * Set on an article the plugin made a draft because the site does not
+     * publish its language, so publishing that language again only touches
+     * these and never an editor's own drafts.
+     */
+    const UNPUBLISHED_LANGUAGE_META = '_content_studio_unpublished_language';
+
+    /**
+     * The published languages that apply_published_locales() last applied.
+     */
+    const APPLIED_LOCALES_OPTION = 'content_studio_applied_published_locales';
+
     public static function save($content)
     {
         self::maybe_store_primary_locale($content);
@@ -98,6 +110,48 @@ class Content_Studio_Storage
         return Content_Studio_Language::available();
     }
 
+
+    /**
+     * Brings the synced articles in line with the published languages, once
+     * per change of that list: articles in a language the site no longer
+     * publishes become drafts, and the drafts the plugin made for a language
+     * that is published again go back live. Confirmed articles do not come
+     * back in the sync, so this cannot wait for it.
+     */
+    public static function maybe_apply_published_locales()
+    {
+        $published = Content_Studio_Language::published_locales();
+        sort($published);
+        $key = implode(',', $published);
+
+        if (get_option(self::APPLIED_LOCALES_OPTION, null) === $key) {
+            return;
+        }
+
+        // First, so a slow run is not started again by the next request.
+        update_option(self::APPLIED_LOCALES_OPTION, $key);
+
+        $post_ids = get_posts([
+            'post_type' => content_studio_post_type(),
+            'post_status' => ['publish', 'draft'],
+            'posts_per_page' => -1,
+            'fields' => 'ids',
+            'meta_key' => '_content_studio_external_id',
+        ]);
+
+        foreach ($post_ids as $post_id) {
+            $hidden = !Content_Studio_Language::is_published_locale(Content_Studio_Language::for_post($post_id));
+            $status = get_post_status($post_id);
+
+            if ($hidden && 'publish' === $status) {
+                update_post_meta($post_id, self::UNPUBLISHED_LANGUAGE_META, 1);
+                wp_update_post(['ID' => $post_id, 'post_status' => 'draft']);
+            } elseif (!$hidden && 'draft' === $status && get_post_meta($post_id, self::UNPUBLISHED_LANGUAGE_META, true)) {
+                delete_post_meta($post_id, self::UNPUBLISHED_LANGUAGE_META);
+                wp_update_post(['ID' => $post_id, 'post_status' => 'publish']);
+            }
+        }
+    }
 
     public static function count_posts()
     {
@@ -212,11 +266,13 @@ class Content_Studio_Storage
         // Een eigen post type zonder categorieën krijgt er ook geen.
         $category_id = is_object_in_taxonomy(content_studio_post_type(), 'category') ? self::get_category_id() : 0;
 
+        $language_hidden = !Content_Studio_Language::is_published_locale($article['locale'] ?? '');
+
         $post_data = [
             'post_title' => sanitize_text_field($article['title']),
             'post_content' => wp_kses_post($content),
             'post_excerpt' => sanitize_textarea_field($excerpt),
-            'post_status' => self::get_post_status($article),
+            'post_status' => $language_hidden ? 'draft' : self::get_post_status($article),
             'post_type' => content_studio_post_type(),
         ];
 
@@ -267,6 +323,12 @@ class Content_Studio_Storage
             if (is_wp_error($content_update)) {
                 return false;
             }
+        }
+
+        if ($language_hidden) {
+            update_post_meta($post_id, self::UNPUBLISHED_LANGUAGE_META, 1);
+        } else {
+            delete_post_meta($post_id, self::UNPUBLISHED_LANGUAGE_META);
         }
 
         update_post_meta($post_id, '_content_studio_external_id', $external_id);

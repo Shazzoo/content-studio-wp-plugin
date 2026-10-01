@@ -15,7 +15,7 @@ if (!defined('CONTENT_STUDIO_API_ROUTE')) {
 }
 
 define('CONTENT_STUDIO_PLUGIN_FILE', __FILE__);
-define('CONTENT_STUDIO_REWRITE_VERSION', '5');
+define('CONTENT_STUDIO_REWRITE_VERSION', '8');
 define('CONTENT_STUDIO_SYNC_CRON_EVENT', 'content_studio_sync_articles');
 define('CONTENT_STUDIO_SYNC_CRON_INTERVAL', 'content_studio_fifteen_minutes');
 
@@ -339,26 +339,32 @@ function content_studio_post_type()
 }
 
 /**
- * Het URL-segment van de blog. Op dit pad staat ook de overzichtspagina.
+ * Het URL-segment van de blog: /{slug} en /{lang}/{slug}. Op het pad zonder
+ * taal staat ook de overzichtspagina.
  *
- * Voor berichten is dat het vaste deel van de permalinkstructuur, zodat de
- * artikel-URL's van de plugin en die van WordPress gelijk lopen:
- * /artikelen/%postname% geeft 'artikelen'. Zonder vast deel (/%postname%) of
- * met meer dan één segment (/nieuws/blog/%postname%) blijft het 'blog'. Voor
+ * Voor berichten is dat de instelling "Blog URL", standaard 'blog', of voor
+ * een taal met een eigen URL (geavanceerde instelling) die van die taal. Voor
  * een eigen post type is het de rewrite-slug van dat type.
+ *
+ * @param string $locale Taal waarvoor de URL geldt; leeg voor de algemene.
  *
  * @return string
  */
-function content_studio_blog_slug()
+function content_studio_blog_slug($locale = '')
 {
     $post_type = content_studio_post_type();
 
     if ('post' === $post_type) {
-        global $wp_rewrite;
+        $overrides = '' !== $locale ? Content_Studio_Blog_Route::slug_overrides() : [];
+        $locale = Content_Studio_Language::normalize($locale);
 
-        $front = $wp_rewrite instanceof WP_Rewrite ? trim(str_replace('index.php', '', (string) $wp_rewrite->front), '/') : '';
+        if (isset($overrides[$locale])) {
+            return $overrides[$locale];
+        }
 
-        return '' !== $front && false === strpos($front, '/') ? $front : 'blog';
+        $slug = sanitize_title((string) get_option(Content_Studio_Blog_Route::SLUG_OPTION, ''));
+
+        return '' !== $slug ? $slug : Content_Studio_Blog_Route::DEFAULT_SLUG;
     }
 
     $object = get_post_type_object($post_type);
@@ -424,6 +430,7 @@ add_action('wp_enqueue_scripts', 'content_studio_enqueue_styles');
 add_action('admin_enqueue_scripts', 'content_studio_enqueue_admin_styles');
 add_filter('cron_schedules', 'content_studio_register_cron_interval');
 add_action('init', 'content_studio_schedule_sync');
+add_action('init', ['Content_Studio_Storage', 'maybe_apply_published_locales'], 30);
 
 require_once plugin_dir_path(__FILE__) . 'includes/class-language.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-strings.php';

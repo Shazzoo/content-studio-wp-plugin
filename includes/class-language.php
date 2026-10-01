@@ -16,6 +16,18 @@ class Content_Studio_Language
     const OPTION = 'content_studio_article_locale';
 
     /**
+     * The languages this site publishes. Unset means only the default
+     * language (standalone) or every language (Polylang, WPML).
+     */
+    const PUBLISHED_OPTION = 'content_studio_published_locales';
+
+    /**
+     * Whether the default language's URLs carry its code: /nl/blog rather
+     * than /blog. Only matters with more than one published language.
+     */
+    const DEFAULT_CODE_OPTION = 'content_studio_default_locale_in_url';
+
+    /**
      * @return string 'polylang' | 'wpml' | 'standalone'
      */
     public static function mode()
@@ -88,15 +100,11 @@ class Content_Studio_Language
             return apply_filters('content_studio_display_locale', $from_url);
         }
 
-        $configured = trim((string) get_option(self::OPTION, ''));
-
-        if ('all' === $configured) {
+        if ('all' === trim((string) get_option(self::OPTION, ''))) {
             return 'all';
         }
 
-        $locale = '' !== $configured ? self::normalize($configured) : self::primary_locale();
-
-        return apply_filters('content_studio_display_locale', $locale);
+        return apply_filters('content_studio_display_locale', self::default_locale());
     }
 
     /**
@@ -165,10 +173,31 @@ class Content_Studio_Language
     }
 
     /**
-     * Languages that actually have synced articles. Cached per request because
-     * routing and the switcher both ask repeatedly.
+     * Languages the site serves: Polylang's or WPML's, or standalone the
+     * published languages.
      */
     public static function available()
+    {
+        $mode = self::mode();
+
+        if ('polylang' === $mode && function_exists('pll_languages_list')) {
+            return array_values(array_filter(array_map([self::class, 'normalize'], (array) pll_languages_list())));
+        }
+
+        if ('wpml' === $mode) {
+            $languages = apply_filters('wpml_active_languages', null, ['skip_missing' => 0]);
+
+            return array_values(array_filter(array_map([self::class, 'normalize'], array_keys((array) $languages))));
+        }
+
+        return self::published_locales();
+    }
+
+    /**
+     * Every language the Engine project has, or failing that the languages
+     * among the synced articles: what the site could publish.
+     */
+    public static function all_locales()
     {
         static $cache = null;
 
@@ -176,29 +205,12 @@ class Content_Studio_Language
             return $cache;
         }
 
-        $mode = self::mode();
-
-        if ('polylang' === $mode && function_exists('pll_languages_list')) {
-            $cache = array_values(array_filter(array_map([self::class, 'normalize'], (array) pll_languages_list())));
-
-            return $cache;
-        }
-
-        if ('wpml' === $mode) {
-            $languages = apply_filters('wpml_active_languages', null, ['skip_missing' => 0]);
-            $cache = array_values(array_filter(array_map([self::class, 'normalize'], array_keys((array) $languages))));
-
-            return $cache;
-        }
-
-        $stored = (array) get_option('content_studio_engine_locales', []);
+        $stored = array_values(array_filter(array_map([self::class, 'normalize'], (array) get_option('content_studio_engine_locales', []))));
 
         if ([] !== $stored) {
-            $cache = array_values(array_filter(array_map([self::class, 'normalize'], $stored)));
+            $cache = $stored;
 
-            if ([] !== $cache) {
-                return $cache;
-            }
+            return $cache;
         }
 
         global $wpdb;
@@ -223,6 +235,112 @@ class Content_Studio_Language
         $cache = array_values($locales);
 
         return $cache;
+    }
+
+    /**
+     * The languages whose articles go live. Articles in other languages are
+     * synced as drafts.
+     */
+    public static function published_locales()
+    {
+        $published = self::published_option();
+
+        if (null !== $published) {
+            return $published;
+        }
+
+        // Polylang and WPML sites have always published every language.
+        if (!self::is_standalone()) {
+            return self::all_locales();
+        }
+
+        $default = self::default_locale();
+
+        return '' !== $default ? [$default] : self::all_locales();
+    }
+
+    /**
+     * An article without a language is always published: there is nothing
+     * to decide on.
+     */
+    public static function is_published_locale($locale)
+    {
+        $locale = self::normalize($locale);
+        $published = self::published_locales();
+
+        // Without any known language there is nothing to hold back.
+        return '' === $locale || [] === $published || in_array($locale, $published, true);
+    }
+
+    /**
+     * The language /blog shows: the configured one, else the Engine
+     * project's primary language, as long as it is published.
+     */
+    public static function default_locale()
+    {
+        $configured = trim((string) get_option(self::OPTION, ''));
+        $candidates = array_values(array_filter([
+            'all' !== $configured ? self::normalize($configured) : '',
+            self::primary_locale(),
+        ]));
+
+        $published = self::published_option();
+
+        if (null === $published) {
+            return $candidates ? $candidates[0] : '';
+        }
+
+        foreach ($candidates as $candidate) {
+            if (in_array($candidate, $published, true)) {
+                return $candidate;
+            }
+        }
+
+        return $published ? $published[0] : '';
+    }
+
+    /**
+     * What goes before /{blog slug} for a language: '' or '/nl'. A site that
+     * publishes one language has no codes in its URLs; with more, the
+     * default language's code can be left out.
+     */
+    public static function url_prefix($locale)
+    {
+        $locale = self::normalize($locale);
+
+        if ('' === $locale || count(self::published_locales()) < 2) {
+            return '';
+        }
+
+        if ($locale === self::default_locale() && !self::default_code_in_url()) {
+            return '';
+        }
+
+        return '/' . $locale;
+    }
+
+    /**
+     * @return bool
+     */
+    public static function default_code_in_url()
+    {
+        return (bool) get_option(self::DEFAULT_CODE_OPTION, true);
+    }
+
+    /**
+     * @return array<int, string>|null null when the setting was never saved.
+     */
+    private static function published_option()
+    {
+        $option = get_option(self::PUBLISHED_OPTION, null);
+
+        if (!is_array($option)) {
+            return null;
+        }
+
+        $locales = array_values(array_unique(array_filter(array_map([self::class, 'normalize'], $option))));
+
+        return [] !== $locales ? $locales : null;
     }
 
     /**
@@ -262,7 +380,8 @@ class Content_Studio_Language
     }
 
     /**
-     * Blog index for a language. Standalone this is /{lang}/blog; with a
+     * Blog index for a language. Standalone this is /{lang}/blog, or /blog
+     * when the language has no code in its URLs (see url_prefix()); with a
      * multilingual plugin, that plugin rewrites the base URL itself.
      */
     public static function blog_url($locale)
@@ -292,7 +411,7 @@ class Content_Studio_Language
             return apply_filters('wpml_permalink', home_url(user_trailingslashit('/' . content_studio_blog_slug())), $locale);
         }
 
-        return home_url(user_trailingslashit('/' . $locale . '/' . content_studio_blog_slug()));
+        return home_url(user_trailingslashit(self::url_prefix($locale) . '/' . content_studio_blog_slug($locale)));
     }
 
     /**
