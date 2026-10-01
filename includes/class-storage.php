@@ -102,7 +102,7 @@ class Content_Studio_Storage
     public static function count_posts()
     {
         $query = new WP_Query([
-            'post_type' => 'post',
+            'post_type' => content_studio_post_type(),
             'posts_per_page' => 1,
             'fields' => 'ids',
             'no_found_rows' => false,
@@ -209,14 +209,15 @@ class Content_Studio_Storage
         $content = $article['body_html'] ?? $article['content'] ?? '';
         $excerpt = $article['excerpt'] ?? $article['meta_description'] ?? '';
         $author_id = self::get_author_id($article);
-        $category_id = self::get_category_id();
+        // Een eigen post type zonder categorieën krijgt er ook geen.
+        $category_id = is_object_in_taxonomy(content_studio_post_type(), 'category') ? self::get_category_id() : 0;
 
         $post_data = [
             'post_title' => sanitize_text_field($article['title']),
             'post_content' => wp_kses_post($content),
             'post_excerpt' => sanitize_textarea_field($excerpt),
             'post_status' => self::get_post_status($article),
-            'post_type' => 'post',
+            'post_type' => content_studio_post_type(),
         ];
 
         if ($author_id) {
@@ -675,7 +676,7 @@ class Content_Studio_Storage
     private static function get_by_external_id($external_id)
     {
         $posts = get_posts([
-            'post_type' => 'post',
+            'post_type' => content_studio_post_type(),
             'post_status' => 'any',
             'posts_per_page' => 1,
             'fields' => 'all',

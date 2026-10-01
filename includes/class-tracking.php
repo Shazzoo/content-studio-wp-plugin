@@ -71,7 +71,7 @@ class Content_Studio_Tracking
             return false;
         }
 
-        if (!is_singular('post')) {
+        if (!is_singular(content_studio_post_type())) {
             return false;
         }
 

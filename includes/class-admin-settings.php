@@ -65,6 +65,16 @@ class Content_Studio_Admin_Settings
 
         register_setting(
             'content_studio_settings',
+            Content_Studio_Blog_Route::POSTS_PER_PAGE_OPTION,
+            [
+                'type' => 'integer',
+                'sanitize_callback' => [$this, 'sanitize_articles_per_page'],
+                'default' => Content_Studio_Blog_Route::DEFAULT_POSTS_PER_PAGE,
+            ]
+        );
+
+        register_setting(
+            'content_studio_settings',
             'content_studio_fallback_author_id',
             [
                 'type' => 'integer',
@@ -134,6 +144,14 @@ class Content_Studio_Admin_Settings
             'content_studio_category_name',
             'Article Category',
             [$this, 'render_category_field'],
+            'content-studio',
+            'content_studio_api_section'
+        );
+
+        add_settings_field(
+            Content_Studio_Blog_Route::POSTS_PER_PAGE_OPTION,
+            'Articles per Page',
+            [$this, 'render_articles_per_page_field'],
             'content-studio',
             'content_studio_api_section'
         );
@@ -322,6 +340,21 @@ class Content_Studio_Admin_Settings
             esc_attr(get_option('content_studio_category_name', '')),
             esc_attr(Content_Studio_Storage::get_default_category_name())
         );
+    }
+
+    public function render_articles_per_page_field()
+    {
+        printf(
+            '<input type="number" name="%1$s" value="%2$d" min="1" max="%3$d" class="small-text" /> <p class="description">How many articles the blog page shows before it moves to page 2.</p>',
+            esc_attr(Content_Studio_Blog_Route::POSTS_PER_PAGE_OPTION),
+            Content_Studio_Blog_Route::posts_per_page(),
+            Content_Studio_Blog_Route::MAX_POSTS_PER_PAGE
+        );
+    }
+
+    public function sanitize_articles_per_page($value)
+    {
+        return max(1, min(Content_Studio_Blog_Route::MAX_POSTS_PER_PAGE, absint($value)));
     }
 
     public function render_fallback_author_field()
@@ -581,6 +614,16 @@ class Content_Studio_Admin_Settings
      */
     private static function sync()
     {
+        // Zonder deze controle belanden de artikelen onder een post type dat
+        // nergens getoond wordt, bijvoorbeeld als de plugin die het
+        // registreert uit staat.
+        if (!post_type_exists(content_studio_post_type())) {
+            return new WP_Error(
+                'content_studio_unknown_post_type',
+                sprintf('Post type "%s" is not registered, so Content Studio did not sync.', content_studio_post_type())
+            );
+        }
+
         $content = Content_Studio_API_Client::fetch_content();
 
         if (is_wp_error($content)) {

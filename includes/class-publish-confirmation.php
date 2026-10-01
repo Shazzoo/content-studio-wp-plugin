@@ -27,7 +27,7 @@ class Content_Studio_Publish_Confirmation
             return;
         }
 
-        if (!$post instanceof WP_Post || 'post' !== $post->post_type) {
+        if (!$post instanceof WP_Post || content_studio_post_type() !== $post->post_type) {
             return;
         }
 

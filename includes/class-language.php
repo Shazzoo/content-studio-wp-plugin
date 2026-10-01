@@ -271,7 +271,7 @@ class Content_Studio_Language
         $mode = self::mode();
 
         if ('polylang' === $mode) {
-            $page = get_page_by_path('blog');
+            $page = get_page_by_path(content_studio_blog_slug());
 
             if ($page && function_exists('pll_get_post')) {
                 $translated = pll_get_post($page->ID, $locale);
@@ -282,17 +282,17 @@ class Content_Studio_Language
             }
 
             if (function_exists('pll_home_url')) {
-                return trailingslashit(pll_home_url($locale)) . 'blog/';
+                return trailingslashit(pll_home_url($locale)) . user_trailingslashit(content_studio_blog_slug());
             }
 
-            return home_url('/blog/');
+            return home_url(user_trailingslashit('/' . content_studio_blog_slug()));
         }
 
         if ('wpml' === $mode) {
-            return apply_filters('wpml_permalink', home_url('/blog/'), $locale);
+            return apply_filters('wpml_permalink', home_url(user_trailingslashit('/' . content_studio_blog_slug())), $locale);
         }
 
-        return home_url('/' . $locale . '/blog/');
+        return home_url(user_trailingslashit('/' . $locale . '/' . content_studio_blog_slug()));
     }
 
     /**
@@ -344,7 +344,7 @@ class Content_Studio_Language
         }
 
         $post_ids = get_posts([
-            'post_type' => 'post',
+            'post_type' => content_studio_post_type(),
             'post_status' => 'any',
             'posts_per_page' => 50,
             'fields' => 'ids',
@@ -401,7 +401,7 @@ class Content_Studio_Language
                 continue;
             }
 
-            $sibling_trid = apply_filters('wpml_element_trid', null, $sibling_id, 'post_post');
+            $sibling_trid = apply_filters('wpml_element_trid', null, $sibling_id, 'post_' . content_studio_post_type());
 
             if ($sibling_trid) {
                 $trid = $sibling_trid;
@@ -412,7 +412,7 @@ class Content_Studio_Language
 
         $details = [
             'element_id' => $post_id,
-            'element_type' => 'post_post',
+            'element_type' => 'post_' . content_studio_post_type(),
             'language_code' => $locale,
         ];
 

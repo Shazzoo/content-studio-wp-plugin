@@ -2,6 +2,15 @@
 
 class Content_Studio_Latest_Posts_Block
 {
+    const DEFAULT_ATTRIBUTES = [
+        'postsToShow' => 3,
+        'showTitle' => true,
+        'title' => 'Latest articles',
+        'showExcerpt' => true,
+        'showMeta' => true,
+        'showImage' => true,
+    ];
+
     public function __construct()
     {
         add_action('init', [$this, 'register_block']);
@@ -58,37 +67,35 @@ class Content_Studio_Latest_Posts_Block
 
     public static function render($attributes = [])
     {
-        $attributes = wp_parse_args($attributes, [
-            'postsToShow' => 3,
-            'showTitle' => true,
-            'title' => 'Latest articles',
-            'showExcerpt' => true,
-            'showMeta' => true,
-            'showImage' => true,
+        $attributes = wp_parse_args($attributes, self::DEFAULT_ATTRIBUTES);
+        $posts = self::get_posts(max(1, min(12, absint($attributes['postsToShow']))));
+
+        return self::render_list($attributes, $posts);
+    }
+
+    /**
+     * Het overzicht zelf, voor het blok en de blogpagina. Alleen de
+     * blogpagina geeft paginering mee.
+     *
+     * @param array      $attributes
+     * @param WP_Query   $posts
+     * @param array|null $pagination Zie Content_Studio_Blog_Route::pagination().
+     *
+     * @return string
+     */
+    public static function render_list($attributes, $posts, $pagination = null)
+    {
+        ob_start();
+
+        content_studio_load_view('article-list', [
+            'attributes' => wp_parse_args($attributes, self::DEFAULT_ATTRIBUTES),
+            'posts' => $posts,
+            'pagination' => $pagination,
         ]);
 
-        $posts = self::get_posts(absint($attributes['postsToShow']));
-        ob_start();
-?>
-        <div class="content-studio-blog content-studio-latest-posts">
-            <?php if (!empty($attributes['showTitle']) && '' !== trim((string) $attributes['title'])) : ?>
-                <header class="content-studio-blog__header">
-                    <h2 class="content-studio-blog__title"><?php echo esc_html($attributes['title']); ?></h2>
-                </header>
-            <?php endif; ?>
+        // Ook als een overschreven view dit vergeet.
+        wp_reset_postdata();
 
-            <?php if ($posts->have_posts()) : ?>
-                <div class="content-studio-blog__grid">
-                    <?php while ($posts->have_posts()) : $posts->the_post(); ?>
-                        <?php self::render_card($attributes); ?>
-                    <?php endwhile; ?>
-                </div>
-                <?php wp_reset_postdata(); ?>
-            <?php else : ?>
-                <p>No articles yet...</p>
-            <?php endif; ?>
-        </div>
-<?php
         return ob_get_clean();
     }
 
@@ -109,15 +116,22 @@ class Content_Studio_Latest_Posts_Block
             'excerpt' => self::get_excerpt(),
         ];
 
-        require plugin_dir_path(CONTENT_STUDIO_PLUGIN_FILE) . 'views/article-card.php';
+        content_studio_load_view('article-card', ['card' => $card]);
     }
 
-    private static function get_posts($posts_to_show)
+    /**
+     * @param int $posts_per_page
+     * @param int $paged
+     *
+     * @return WP_Query
+     */
+    public static function get_posts($posts_per_page, $paged = 1)
     {
         return new WP_Query([
-            'post_type' => 'post',
+            'post_type' => content_studio_post_type(),
             'post_status' => 'publish',
-            'posts_per_page' => max(1, min(12, $posts_to_show)),
+            'posts_per_page' => $posts_per_page,
+            'paged' => $paged,
             'orderby' => 'date',
             'order' => 'DESC',
             'meta_query' => Content_Studio_Storage::article_meta_query(),
@@ -164,6 +178,6 @@ class Content_Studio_Latest_Posts_Block
         $word_count = str_word_count($content);
         $minutes = max(1, (int) ceil($word_count / 200));
 
-        return sprintf('%d min read', $minutes);
+        return sprintf(Content_Studio_Strings::get('read_time', Content_Studio_Language::for_post(get_the_ID())), $minutes);
     }
 }

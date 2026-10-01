@@ -15,7 +15,7 @@ if (!defined('CONTENT_STUDIO_API_ROUTE')) {
 }
 
 define('CONTENT_STUDIO_PLUGIN_FILE', __FILE__);
-define('CONTENT_STUDIO_REWRITE_VERSION', '3');
+define('CONTENT_STUDIO_REWRITE_VERSION', '5');
 define('CONTENT_STUDIO_SYNC_CRON_EVENT', 'content_studio_sync_articles');
 define('CONTENT_STUDIO_SYNC_CRON_INTERVAL', 'content_studio_fifteen_minutes');
 
@@ -303,6 +303,73 @@ function content_studio_get_style_range_settings()
     ];
 }
 
+/**
+ * Laadt een front-end view. Een thema vervangt een view door een bestand met
+ * dezelfde naam in content-studio/ in het (child)thema te zetten, bijvoorbeeld
+ * content-studio/article-card.php. Per bestand: wat het thema niet heeft,
+ * komt uit views/ van de plugin.
+ *
+ * @param string $name Naam van de view, zonder .php.
+ * @param array  $args Variabelen die de view te zien krijgt.
+ */
+function content_studio_load_view($name, $args = [])
+{
+    $path = locate_template('content-studio/' . $name . '.php');
+
+    if ('' === $path) {
+        $path = plugin_dir_path(CONTENT_STUDIO_PLUGIN_FILE) . 'views/' . $name . '.php';
+    }
+
+    extract($args, EXTR_SKIP);
+
+    require $path;
+}
+
+/**
+ * Het post type waaronder de artikelen worden opgeslagen. Standaard gewone
+ * berichten; een site kiest een eigen post type met de filter
+ * content_studio_post_type. Kies dat voor de eerste sync: al gesyncte
+ * artikelen verhuizen niet mee.
+ *
+ * @return string
+ */
+function content_studio_post_type()
+{
+    return (string) apply_filters('content_studio_post_type', 'post');
+}
+
+/**
+ * Het URL-segment van de blog. Op dit pad staat ook de overzichtspagina.
+ *
+ * Voor berichten is dat het vaste deel van de permalinkstructuur, zodat de
+ * artikel-URL's van de plugin en die van WordPress gelijk lopen:
+ * /artikelen/%postname% geeft 'artikelen'. Zonder vast deel (/%postname%) of
+ * met meer dan één segment (/nieuws/blog/%postname%) blijft het 'blog'. Voor
+ * een eigen post type is het de rewrite-slug van dat type.
+ *
+ * @return string
+ */
+function content_studio_blog_slug()
+{
+    $post_type = content_studio_post_type();
+
+    if ('post' === $post_type) {
+        global $wp_rewrite;
+
+        $front = $wp_rewrite instanceof WP_Rewrite ? trim(str_replace('index.php', '', (string) $wp_rewrite->front), '/') : '';
+
+        return '' !== $front && false === strpos($front, '/') ? $front : 'blog';
+    }
+
+    $object = get_post_type_object($post_type);
+
+    if ($object && is_array($object->rewrite) && !empty($object->rewrite['slug'])) {
+        return trim($object->rewrite['slug'], '/');
+    }
+
+    return $post_type;
+}
+
 function content_studio_enqueue_admin_styles($hook)
 {
     if ('settings_page_content-studio' !== $hook) {
@@ -359,6 +426,7 @@ add_filter('cron_schedules', 'content_studio_register_cron_interval');
 add_action('init', 'content_studio_schedule_sync');
 
 require_once plugin_dir_path(__FILE__) . 'includes/class-language.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-strings.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-api-client.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-storage.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-rest-routes.php';

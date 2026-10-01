@@ -10,20 +10,6 @@
  */
 class Content_Studio_Hub_Articles
 {
-    /**
-     * De teksten volgen de taal van het artikel, niet die van de site.
-     */
-    const STRINGS = [
-        'en' => [
-            'title' => 'Cluster overview',
-            'intro' => 'Dive into the details with our specialized articles on this topic.',
-        ],
-        'nl' => [
-            'title' => 'Cluster overzicht',
-            'intro' => 'Duik in de details met onze gespecialiseerde artikelen over dit onderwerp.',
-        ],
-    ];
-
     public function __construct()
     {
         add_filter('the_content', [self::class, 'append_hub_articles']);
@@ -31,7 +17,7 @@ class Content_Studio_Hub_Articles
 
     public static function append_hub_articles($content)
     {
-        if (!is_singular('post') || !in_the_loop() || !is_main_query()) {
+        if (!is_singular(content_studio_post_type()) || !in_the_loop() || !is_main_query()) {
             return $content;
         }
 
@@ -54,7 +40,6 @@ class Content_Studio_Hub_Articles
             return $content;
         }
 
-        $strings = isset(self::STRINGS[$locale]) ? self::STRINGS[$locale] : self::STRINGS['en'];
         $attributes = [
             'showExcerpt' => true,
             'showMeta' => true,
@@ -62,20 +47,15 @@ class Content_Studio_Hub_Articles
         ];
 
         ob_start();
-?>
-        <section class="content-studio-blog content-studio-hub-articles">
-            <header class="content-studio-blog__header">
-                <h2 class="content-studio-blog__title"><?php echo esc_html($strings['title']); ?></h2>
-                <p class="content-studio-hub-articles__intro"><?php echo esc_html($strings['intro']); ?></p>
-            </header>
 
-            <div class="content-studio-blog__grid">
-                <?php while ($articles->have_posts()) : $articles->the_post(); ?>
-                    <?php Content_Studio_Latest_Posts_Block::render_card($attributes); ?>
-                <?php endwhile; ?>
-            </div>
-        </section>
-<?php
+        content_studio_load_view('hub-articles', [
+            // In de taal van het artikel, niet die van de site.
+            'title' => Content_Studio_Strings::get('hub_title', $locale),
+            'intro' => Content_Studio_Strings::get('hub_intro', $locale),
+            'articles' => $articles,
+            'attributes' => $attributes,
+        ]);
+
         wp_reset_postdata();
 
         return $content . ob_get_clean();
@@ -106,7 +86,7 @@ class Content_Studio_Hub_Articles
         }
 
         return new WP_Query([
-            'post_type' => 'post',
+            'post_type' => content_studio_post_type(),
             'post_status' => 'publish',
             'posts_per_page' => -1,
             'no_found_rows' => true,
