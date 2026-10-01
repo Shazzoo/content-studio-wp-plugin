@@ -17,16 +17,23 @@ This README is for developers who set the plugin up or adapt it for a site.
 
 ## Setup
 
-Activate the plugin, then fill in **Settings → Content Studio**:
+Activate the plugin, then fill in **Settings → Content Studio**. The page has
+four groups: connection, blog, languages and style.
 
 | Setting | Meaning |
 |---|---|
+| **Connection Settings** | |
 | API Key | Your Content Studio Engine API key |
 | Project ID | The Engine project to pull articles from |
-| Article Language | Which language the blog shows. Empty follows the project's primary language |
-| Article Category | Category for synced articles. Empty uses `Artikelen` on a Dutch site, `Articles` otherwise |
+| **Blog Settings** | |
+| Blog URL | The word in the blog's URLs, default `blog`: `/blog`, `/nl/blog`, `/nl/blog/{article}`. Under *Advanced*, a language can get its own word. See [URLs](#urls) |
 | Articles per Page | Articles on the blog page before it paginates (1–48, default 10) |
+| Article Category | Category for synced articles. Empty uses `Artikelen` on a Dutch site, `Articles` otherwise |
 | Fallback Author | WordPress user for articles that arrive without an author |
+| **Language Settings** | |
+| Published Languages | Which of the Engine's languages go live. Default: only the project's main language. See [Languages](#languages) |
+| Default Language | The language `/blog` and the Latest Posts block show. Until it is saved, the project's main language |
+| Language Code in URLs | Whether the default language's URLs carry its code too (`/nl/blog`) or not (`/blog`). Only with more than one published language |
 
 The style settings on the same page set colours, sizes and spacing of the
 article cards.
@@ -36,8 +43,11 @@ when the last sync ran and what it did or why it failed, when the next one is
 due (with a warning when WP-Cron has stopped running), and the last failed
 publish confirmation.
 
-Activating the plugin creates a page at `/blog` that renders
-`[content_studio_blog]`.
+Activating the plugin creates a page titled "Content Studio Articles" at
+`/blog` that renders `[content_studio_blog]`. Rename it freely: the plugin
+never changes the title afterwards. The title shows in the browser tab and
+search results; the heading above the article list comes from the plugin and
+follows the language ("Artikelen", "Articles").
 
 ## Syncing
 
@@ -97,26 +107,60 @@ separately.
 
 ## URLs
 
+With one published language there is no language code in the URLs:
+
 | URL | What |
 |---|---|
-| `/blog` | Overview page, in the default language |
+| `/blog` | Overview page |
 | `/blog/page/2` | Next page of the overview |
-| `/{lang}/blog` | Overview in one language, e.g. `/nl/blog` |
-| `/{lang}/blog/page/2` | Next page in that language |
-| `/{lang}/blog/{slug}` | An article |
+| `/blog/{slug}` | An article |
 
-`blog` is the fixed first part of the site's permalink structure (**Settings →
-Permalinks**): `/artikelen/%postname%` gives `/artikelen`, `/nl/artikelen`
-and so on. A structure without a fixed part (`/%postname%/`) or with more than
-one segment (`/nieuws/blog/%postname%`) keeps `blog`. With
-[your own post type](#storing-articles-under-your-own-post-type) it is that
-post type's slug.
+With more than one, each language gets its code: `/nl/blog`,
+`/nl/blog/page/2`, `/nl/blog/{slug}`, `/en/blog`, and so on. Switch off
+**Language Code in URLs** and the default language goes without it
+(`/blog/{slug}`) while the others keep theirs (`/en/blog/{slug}`).
 
-Older versions of the plugin always used `/{lang}/blog`. When the prefix is
-something else, those URLs redirect (301) to the same path under the new
-prefix, so links and search results keep working. A later change to the
-permalink structure is not redirected; WordPress does not do that for its own
-posts either.
+Every page has one URL; the other forms redirect (301) to it, keeping any
+query string such as utm parameters. So after switching to one language,
+`/nl/blog/{slug}` redirects to `/blog/{slug}`, and with codes on, `/blog`
+redirects to `/nl/blog`. The exception is **Default Language** set to *All
+languages*: `/blog` then shows every published language on one overview.
+
+`blog` is the **Blog URL** setting. Changing it to `kennis` gives `/kennis`,
+`/nl/kennis` and `/nl/kennis/{article}`. On a change the plugin:
+
+- renames its overview page to the new URL, so there is never a second one;
+- remembers the old URL and redirects it (301) to the same path under the new
+  one: `/blog` → `/kennis`, `/nl/blog/page/2` → `/nl/kennis/page/2`,
+  `/nl/blog/{article}` → `/nl/kennis/{article}`. Without a language, only the
+  overview and its pages redirect, because `/blog/{something}` can be the
+  site's own posts;
+- rebuilds the rewrite rules on the next page load.
+
+It refuses a URL that a page already uses (other than its own overview),
+two-letter URLs (they look like language codes) and paths WordPress reserves,
+such as `/page` and `/wp-json`, and keeps the old value with an error message.
+
+### A different URL per language
+
+Under **Blog URL**, *Advanced: a different URL per language* gives a language
+its own word, for example `kennis` as the Blog URL and `knowledge` for
+English: `/nl/kennis/{article}` and `/en/knowledge/{article}`. A language left
+empty uses the Blog URL. It works with and without language codes: with the
+code off for an English default language, English lives at `/knowledge` and
+Dutch at `/nl/kennis`.
+
+The overview is still one page, at the Blog URL; every language's URL shows
+it in that language. A language under another language's word redirects to
+its own (`/en/kennis` → `/en/knowledge`), and a removed or changed word
+redirects like an old Blog URL. The same checks apply as for the Blog URL.
+
+Only for posts on a site without Polylang or WPML: those plugins translate the
+page's URL themselves, and a custom post type has one slug.
+
+The site's permalink setting (**Settings → Permalinks**) does not change the
+blog URL. With [your own post type](#storing-articles-under-your-own-post-type)
+the URL is that post type's slug, and the setting is read-only.
 
 Article URLs follow the permalink setting for the trailing slash. An article
 requested without its language is redirected to the URL with it. A language
@@ -125,19 +169,55 @@ last page.
 
 ## Languages
 
-Without a multilingual plugin, the plugin handles languages itself: the
-language URLs above, and a language switcher through
-`[content_studio_language_switcher]`.
+An Engine project can generate articles in several languages while the site
+publishes only some of them. **Published Languages** decides which go live;
+by default only the project's main language.
+
+Articles in other languages are still synced, but as drafts: they are not on
+the site, not in the sitemap, feed or search, and not confirmed to the
+Engine, so the Engine keeps offering them. Check a language later and its
+articles go live, and are confirmed, on the next page load. Changing the
+setting applies straight away to articles already on the site, including
+after an update from a version without this setting: on such a site the
+articles outside the main language become drafts.
+
+The plugin only puts back drafts it made itself (marked with
+`_content_studio_unpublished_language`); a draft an editor made stays a
+draft.
 
 The default language is the Engine project's primary language. Until the
 Engine has reported it, the plugin uses the most common language among the
-synced articles, and failing that the site language. **Article Language** in
-the settings overrides it, or set it to *All languages* to show everything on
-one overview.
+synced articles, and failing that the site language. **Default Language** in
+the settings overrides it, or set it to *All languages* to show every
+published language on one overview. A default language that is not
+published falls back to the first published one.
+
+Without a multilingual plugin, the plugin handles the language URLs (see
+[URLs](#urls)) and a language switcher through
+`[content_studio_language_switcher]`. The switcher only appears with more
+than one published language.
 
 With **Polylang** or **WPML** active, the plugin steps aside. That plugin
-owns the language URLs and the switcher, and the sync assigns each article its
-language and links translations that share a `cluster_key`. Articles are
+owns the language URLs and the switcher, **Language Code in URLs** does not
+apply, and **Published Languages** defaults to every language. The sync
+assigns each article its language and links translations that share a
+`cluster_key`. When Polylang or WPML is switched on later, the plugin gives
+the articles that were already there their language once.
+
+With **Polylang**:
+
+- Each published language gets its own overview page, labelled with that
+  language and linked as a translation of the default one, because Polylang
+  takes a page's language from the page itself. The plugin creates them when a
+  language is published. Free Polylang wants a unique address per page, so a
+  language's page lives at its URL from *Advanced: a different URL per
+  language*, or else at `{Blog URL}-{language}`, e.g. `/en/blog-en`.
+- Changing that URL moves the page, but the old address does not redirect.
+- Articles get WordPress's own URLs (**Settings → Permalinks**), with
+  Polylang's language prefix, not the Blog URL.
+- Switching Polylang off leaves the extra overview pages behind; trash them.
+
+WPML has not been tested; it uses one overview page. Articles are
 only linked when each language occurs once in the group; otherwise the
 `cluster_key` is a topic cluster rather than a set of translations. Polylang
 and WPML must have translation switched on for the post type the articles
@@ -289,7 +369,9 @@ blog language and page has its own canonical.
 Engine's values: the SEO title as `%%title%%`, the meta description, and the
 Open Graph and Twitter texts. A value an editor fills in in Yoast always wins.
 It also fills `%%page%%` on the blog pages, and gives each blog language and
-page its own canonical, `og:url` and schema URL.
+page its own canonical, `og:url` and schema URL. Yoast stores each article's
+URL; when the plugin's URL settings change, it empties those so Yoast stores
+the new ones on the next visit.
 
 **Rank Math, All in One SEO and SEOPress** are detected, and the plugin then
 outputs no tags of its own, but it does not pass them the Engine's values yet.
@@ -399,8 +481,8 @@ add_filter('content_studio_post_type', fn () => 'kennisbank');
 The plugin then:
 
 - stores new articles as `kennisbank`;
-- uses the post type's rewrite slug instead of `blog`: `/kennisbank`,
-  `/nl/kennisbank`, `/nl/kennisbank/{slug}`;
+- uses the post type's rewrite slug instead of the Blog URL setting:
+  `/kennisbank`, `/nl/kennisbank`, `/nl/kennisbank/{slug}`;
 - creates a page at `/kennisbank` with `[content_studio_blog]` as the
   overview, and rebuilds the rewrite rules.
 
@@ -443,6 +525,9 @@ stores:
 | `content_studio_last_sync_at`, `_last_sync_count`, `_last_sync_error` | Time (Unix timestamp), article count and error of the last sync, from cron, the button or the REST route |
 | `content_studio_last_publish_confirmation_error` | Last failed confirmation to the Engine |
 | `content_studio_engine_primary_locale`, `_engine_locales` | The project's languages, as the Engine reported them |
+| `content_studio_blog_slug`, `content_studio_blog_slugs`, `content_studio_previous_blog_slugs` | The blog URL, the URLs per language, and the earlier ones that redirect |
+| `content_studio_published_locales`, `content_studio_default_locale_in_url` | Published languages, and whether the default language has a code in its URLs |
+| `content_studio_applied_published_locales` | The published languages last applied to the existing articles |
 | `content_studio_rewrite_version` | When to rebuild the rewrite rules |
 
 The settings page shows these in the card at the top.
@@ -455,7 +540,7 @@ options stay.
 | Symptom | Check |
 |---|---|
 | No articles arrive | The sync status on the settings page: the last error, and whether the next sync is overdue (WP-Cron not running). **Sync Articles** runs one immediately |
-| An article is missing | Only `approved` content syncs. Already-confirmed articles are not fetched again, so a deleted post does not come back on its own |
+| An article is missing | Is its language under **Published Languages**? Otherwise it is a draft. Only `approved` content syncs. Already-confirmed articles are not fetched again, so a deleted post does not come back on its own |
 | Language or page URLs give a 404 | Save **Settings → Permalinks** once to rebuild the rewrite rules. A page number past the last page is a 404 on purpose |
 | Featured image missing | `_content_studio_image_import_error` on the post |
 | Articles not confirmed in the Engine | `WP_ENVIRONMENT_TYPE`, `CONTENT_STUDIO_CONFIRM_PUBLISHED`, and the last confirmation error in the sync status |
@@ -472,6 +557,11 @@ options stay.
   "August 24, 2026". The same goes for WordPress's own "Page 2" in the title.
 - **Rank Math, All in One SEO and SEOPress** do not get the Engine's SEO
   values yet.
+- **The Engine does not take URL updates.** It only confirms articles that
+  are still approved, so after a URL change the Engine keeps the old URL of
+  an article it already has as published. The plugin treats that refusal as
+  "already published", not as an error, and offers the new URL again on the
+  next save, so it gets through once the Engine accepts updates.
 
 ## Code layout
 
