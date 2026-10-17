@@ -50,6 +50,44 @@ class Content_Studio_Storage
     }
 
     /**
+     * Eén artikel uit de engine, langs exact dezelfde toewijzing als de
+     * ophaalronde. De webhook-weg heeft dat nodig: twee keer hetzelfde
+     * veldwerk is twee keer iets om te vergeten.
+     *
+     * @param array $article
+     *
+     * @return int Het post-ID, of 0 als het niet verwerkt kon worden.
+     */
+    public static function save_one($article)
+    {
+        if (!is_array($article)) {
+            return 0;
+        }
+
+        $external_id = self::get_article_external_id($article);
+        $title = isset($article['title']) ? sanitize_text_field($article['title']) : '';
+
+        if ('' === $external_id || '' === $title) {
+            return 0;
+        }
+
+        return (int) self::save_article($external_id, $article);
+    }
+
+    /**
+     * Of dit artikel hier al staat. Dat bepaalt of een publicatie voor deze
+     * site nieuws is of een correctie - en de engine hoort het verschil.
+     *
+     * @param string $external_id
+     *
+     * @return bool
+     */
+    public static function knows_external_id($external_id)
+    {
+        return null !== self::get_by_external_id((string) $external_id);
+    }
+
+    /**
      * Meta query matching synced articles, narrowed to one language unless the
      * site is configured to show every language.
      */
@@ -269,7 +307,7 @@ class Content_Studio_Storage
         // here does get updated, so withdrawing approval in the Engine sends
         // the post back to draft rather than leaving it live.
         if (!$existing && !self::is_syncable($article)) {
-            return false;
+            return 0;
         }
 
         $post_date = self::format_datetime($article['published_at'] ?? $article['date'] ?? null);
@@ -314,7 +352,7 @@ class Content_Studio_Storage
         }
 
         if (is_wp_error($post_id)) {
-            return false;
+            return 0;
         }
 
         if (is_string($content)) {
@@ -334,7 +372,7 @@ class Content_Studio_Storage
             ], true);
 
             if (is_wp_error($content_update)) {
-                return false;
+                return 0;
             }
         }
 
@@ -359,7 +397,7 @@ class Content_Studio_Storage
         // request could not be confirmed from transition_post_status yet.
         Content_Studio_Publish_Confirmation::maybe_confirm($post_id);
 
-        return true;
+        return (int) $post_id;
     }
 
     private static function get_post_status($article)
