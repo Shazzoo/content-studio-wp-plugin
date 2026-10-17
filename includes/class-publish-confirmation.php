@@ -72,6 +72,17 @@ class Content_Studio_Publish_Confirmation
             return false;
         }
 
+        /*
+         * Een aangemelde site meldt zijn publicaties langs de V2-weg terug,
+         * met het post-ID en de url erbij. Deze V1-bevestiging zou dan
+         * hetzelfde nog eens zeggen - en omdat de Engine aan de eerste melding
+         * ziet dat het artikel live is, zou de tweede alleen nog een
+         * foutmelding opleveren. Eén kanaal meldt, niet twee.
+         */
+        if (Content_Studio_Engine_Client::is_connected()) {
+            return false;
+        }
+
         $post_id = absint($post_id);
 
         if (!$post_id) {
