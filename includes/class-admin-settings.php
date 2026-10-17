@@ -7,6 +7,9 @@ class Content_Studio_Admin_Settings
         add_action('admin_menu', [$this, 'add_settings_page']);
         add_action('admin_init', [$this, 'register_settings']);
         add_action('admin_post_content_studio_sync', [$this, 'sync_articles']);
+        add_action('updated_option', [$this, 'flag_connect_after_key_change']);
+        add_action('admin_init', [$this, 'maybe_connect_to_engine'], 20);
+        add_action('admin_notices', [$this, 'connection_notice']);
         add_action('admin_post_content_studio_reset_style_settings', [$this, 'reset_style_settings']);
     }
 
@@ -854,6 +857,91 @@ class Content_Studio_Admin_Settings
         exit;
     }
 
+    /**
+     * De sleutels worden door de Settings API opgeslagen, die daarna
+     * doorverwijst. We onthouden alleen dát er iets veranderde; het aanmelden
+     * zelf gebeurt op het volgende verzoek, zodat de melding op de
+     * instellingenpagina terechtkomt en niet in een verzoek dat niemand ziet.
+     *
+     * @param string $option
+     */
+    public function flag_connect_after_key_change($option)
+    {
+        if (!in_array($option, ['content_studio_api_key', 'content_studio_project_id'], true)) {
+            return;
+        }
+
+        set_transient('content_studio_connect_pending', 1, 5 * MINUTE_IN_SECONDS);
+    }
+
+    /**
+     * Wie de API-sleutel en de project-ID invult wil daarmee verbonden zijn.
+     * Er valt dus niets extra in te stellen: de engine hoort bij die
+     * aanmelding zelf welk CMS dit is en op welk adres hij mag bellen.
+     *
+     * Een andere sleutel of een ander project betekent opnieuw aanmelden, want
+     * het bewaarde geheim hoort dan bij iets anders.
+     */
+    public function maybe_connect_to_engine()
+    {
+        if (!get_transient('content_studio_connect_pending')) {
+            return;
+        }
+
+        delete_transient('content_studio_connect_pending');
+
+        if (!Content_Studio_Engine_Client::is_configured()) {
+            return;
+        }
+
+        $connected = Content_Studio_Engine_Client::register(Content_Studio_Engine_Sync::webhook_url());
+
+        set_transient(
+            'content_studio_connect_result',
+            [
+                'ok' => $connected,
+                'message' => Content_Studio_Engine_Client::last_message(),
+            ],
+            5 * MINUTE_IN_SECONDS
+        );
+    }
+
+    /**
+     * Mislukt het aanmelden, dan is dat geen storing - de artikelen komen dan
+     * met de ophaalronde binnen. Maar de reden van de engine hoort de klant
+     * hier te lezen: een project dat al aan een andere website hangt, moet die
+     * koppeling eerst in Content Studio verbreken.
+     */
+    public function connection_notice()
+    {
+        $result = get_transient('content_studio_connect_result');
+
+        if (!is_array($result)) {
+            return;
+        }
+
+        delete_transient('content_studio_connect_result');
+
+        if (!empty($result['ok'])) {
+            printf(
+                '<div class="notice notice-success is-dismissible"><p>%s</p></div>',
+                esc_html__('Aangemeld bij Content Studio: de engine stuurt nieuwe artikelen nu zelf naar deze website.', 'content-studio')
+            );
+
+            return;
+        }
+
+        $message = isset($result['message']) && '' !== (string) $result['message']
+            ? (string) $result['message']
+            : __('De engine was niet te bereiken. De artikelen komen voorlopig met de ophaalronde binnen.', 'content-studio');
+
+        printf(
+            '<div class="notice notice-warning"><p><strong>%s</strong> %s</p></div>',
+            esc_html__('Nog niet aangemeld bij Content Studio.', 'content-studio'),
+            esc_html($message)
+        );
+    }
+
     public function sync_articles()
     {
         if (!current_user_can('manage_options')) {
@@ -898,6 +986,27 @@ class Content_Studio_Admin_Settings
      */
     public static function run_sync()
     {
+        /*
+         * Is deze site aangemeld bij de engine, dan wordt hij gebeld zodra er
+         * iets klaarstaat en is dit alleen nog het vangnet: ophalen wat een
+         * gemiste webhook heeft laten liggen, vanaf de eigen cursor. Zo niet,
+         * dan blijft het de oude ophaalronde.
+         *
+         * Nooit allebei. De oude ronde haalt alles op wat is goedgekeurd, ook
+         * artikelen waarvan het publicatiemoment nog niet bereikt is - precies
+         * wat V2 tegenhoudt. Daarom beslist deze ene plek het, en niet elke
+         * aanroeper apart.
+         */
+        if (Content_Studio_Engine_Client::is_connected()) {
+            $handled = Content_Studio_Engine_Sync::catch_up();
+
+            update_option('content_studio_last_sync_at', time());
+            update_option('content_studio_last_sync_error', '');
+            update_option('content_studio_last_sync_count', absint($handled));
+
+            return $handled;
+        }
+
         $result = self::sync();
 
         update_option('content_studio_last_sync_at', time());
