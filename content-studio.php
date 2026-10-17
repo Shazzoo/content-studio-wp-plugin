@@ -14,6 +14,18 @@ if (!defined('CONTENT_STUDIO_API_ROUTE')) {
     define('CONTENT_STUDIO_API_ROUTE', 'https://engine.content-studio.com/api/v1');
 }
 
+/*
+ * Het V2-adres volgt het V1-adres, zodat een site die naar een eigen engine
+ * wijst daar ook voor V2 naar wijst. Een site met een heel ander pad kan deze
+ * constante gewoon zelf definiëren.
+ */
+if (!defined('CONTENT_STUDIO_API_V2_ROUTE')) {
+    define(
+        'CONTENT_STUDIO_API_V2_ROUTE',
+        rtrim(preg_replace('#/v1/?$#', '', CONTENT_STUDIO_API_ROUTE), '/') . '/v2'
+    );
+}
+
 define('CONTENT_STUDIO_PLUGIN_FILE', __FILE__);
 define('CONTENT_STUDIO_REWRITE_VERSION', '8');
 define('CONTENT_STUDIO_SYNC_CRON_EVENT', 'content_studio_sync_articles');
@@ -436,6 +448,9 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-language.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-strings.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-api-client.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-storage.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-webhook-signature.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-engine-client.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-engine-sync.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-rest-routes.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-admin-settings.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-latest-posts-block.php';
