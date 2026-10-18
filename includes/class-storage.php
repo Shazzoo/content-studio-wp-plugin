@@ -763,7 +763,10 @@ class Content_Studio_Storage
             'author_name',
             'author_role_title',
             'author_experience_label',
-            'author_experience_summary',
+            // De Engine stuurt dit als author_expertise_summary; de oude
+            // sleutel stond nooit in het antwoord, dus werd deze meta
+            // op geen enkele site ooit gevuld.
+            'author_expertise_summary',
             'author_article_relevance',
             'author_boundary_note',
             'source_month',
