@@ -3,7 +3,7 @@
 /*
 * Plugin Name: Content Studio
 * Description: Fetches article content from an external API and stores it locally.
-* Version: 1.0
+* Version: 1.1
 */
 
 if (!defined('ABSPATH')) {
