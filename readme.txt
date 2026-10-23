@@ -3,7 +3,7 @@ Tags: content, articles, seo, blog
 Requires at least: 5.6
 Tested up to: 7.1
 Requires PHP: 7.0
-Stable tag: 1.1
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -27,10 +27,10 @@ This plugin connects to the Content Studio Engine at engine.content-studio.com, 
 
 == Changelog ==
 
-= 1.1 =
+= 1.1.0 =
 * Content Studio sends articles to the site as soon as they are ready.
 * Author box under articles, styling for pull-quotes, hreflang without a multilingual plugin.
 * WP-CLI command `wp content-studio sync`, with `--all` to fetch every article again.
 
-= 1.0 =
+= 1.0.0 =
 * First release.
