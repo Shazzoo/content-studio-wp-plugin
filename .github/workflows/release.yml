@@ -20,9 +20,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build the zip
-        run: git archive --format=zip --prefix=content-studio/ -o "content-studio-${TAG#v}.zip" HEAD
+        run: git archive --format=zip --prefix=content-studio/ -o "content-studio-${TAG}.zip" HEAD
 
       - name: Attach it to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" "content-studio-${TAG#v}.zip" --clobber
+        run: gh release upload "$TAG" "content-studio-${TAG}.zip" --clobber
