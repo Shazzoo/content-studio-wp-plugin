@@ -7,9 +7,12 @@ class Content_Studio_API_Client
     /**
      * Every approved article, following the Engine's pagination links.
      *
+     * @param string $status Status filter for the Engine; '' asks for every
+     *                       status, like the Laravel plugin's --status=all.
+     *
      * @return array|WP_Error
      */
-    public static function fetch_content()
+    public static function fetch_content($status = 'approved')
     {
         $api_key = get_option('content_studio_api_key', '');
         $project_id = get_option('content_studio_project_id', '');
@@ -26,10 +29,11 @@ class Content_Studio_API_Client
         // yet on this site. Once this plugin confirms a publish the engine flips
         // the status to 'published' and it drops out of this list. The filter
         // travels along in links.next, so later pages keep it.
-        $url = add_query_arg(
-            ['status' => 'approved'],
-            trailingslashit(CONTENT_STUDIO_API_ROUTE) . 'projects/' . rawurlencode($project_id) . '/contents'
-        );
+        $url = trailingslashit(CONTENT_STUDIO_API_ROUTE) . 'projects/' . rawurlencode($project_id) . '/contents';
+
+        if ('' !== $status) {
+            $url = add_query_arg(['status' => $status], $url);
+        }
 
         $articles = [];
         // A page count the Engine cannot realistically exceed, so a malformed

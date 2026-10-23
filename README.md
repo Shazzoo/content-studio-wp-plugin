@@ -21,6 +21,8 @@ This guide is for developers integrating or customizing the plugin on a WordPres
 - For the Engine to send articles itself: the site reachable from the internet
   over HTTPS on the standard port. Without that the plugin keeps syncing every
   15 minutes (see [Connected to the Engine](#connected-to-the-engine)).
+- Optional: [WP-CLI](https://wp-cli.org), for a sync or a full re-sync from
+  the command line (see [From the command line](#from-the-command-line)).
 
 ## Setup
 
@@ -46,8 +48,9 @@ four groups.
 The card at the top of the page shows the **sync status**: the number of
 synced articles, when the last sync ran and what it did or why it failed, when
 the next one is due (with a warning when WP-Cron has stopped running), whether
-the site is connected to the Engine (or why not), and the last failed publish
-confirmation. **Sync Articles** there runs a sync now.
+the site is connected to the Engine (or why not) and when its last call came
+in, a warning when those calls do not reach the site, and the last failed
+publish confirmation. **Sync Articles** there runs a sync now.
 
 ### The overview page
 
@@ -98,9 +101,9 @@ Articles reach the site in one of two ways:
 
 A connected site no longer fetches all approved content, so the Engine is the
 only one deciding what goes live. **Sync Articles** on the settings page syncs
-immediately, as does
-`POST /wp-json/content-studio/v1/sync` for a user with `manage_options`. All
-three record their result in the sync status.
+immediately, as do `POST /wp-json/content-studio/v1/sync` for a user with
+`manage_options` and [`wp content-studio sync`](#from-the-command-line). All of
+them record their result in the sync status.
 
 WP-Cron only runs when the site gets visitors. On a quiet site, switch it to
 a real cron job so syncs run on time:
@@ -113,6 +116,23 @@ define('DISABLE_WP_CRON', true);
 ```
 */5 * * * * curl -s https://example.com/wp-cron.php > /dev/null
 ```
+
+### From the command line
+
+With [WP-CLI](https://wp-cli.org), `wp content-studio sync` runs the same sync
+as WP-Cron and the button. `--all` fetches every article again, including the
+ones already on the site, the counterpart of the Laravel plugin's
+`content-studio:articles --status=all`:
+
+```
+wp content-studio sync --all
+```
+
+Existing posts are updated, not created twice. Use it after a plugin update
+that stores a new field, or to bring back a post that was deleted. Without a
+connection it asks the Engine for every status instead of only `approved`; a
+connected site starts its catch-up from the beginning and runs it to the end,
+and tells the Engine about each article again, which changes nothing there.
 
 ### Connected to the Engine
 
@@ -370,7 +390,8 @@ WPML has not been tested. It uses one overview page.
 When the Engine groups articles under a hub article, the hub's page lists the
 published articles that belong to it under its text, in a "Cluster overview"
 section in the hub's language. Articles synced before the plugin stored
-`hub_content_id` only get it when the Engine sends them again. Override
+`hub_content_id` only get it when the Engine sends them again, or after
+`wp content-studio sync --all`. Override
 `hub-articles.php` to change the section.
 
 ## Author box and pull-quotes
@@ -450,7 +471,7 @@ Example: an article card with the author under the title.
 <?php // wp-content/themes/your-theme/content-studio/article-card.php ?>
 <article class="<?php echo esc_attr($card['article_classes']); ?>">
     <?php if ($card['show_image'] && '' !== $card['image_html']) : ?>
-        <a href="<?php echo esc_url($card['image_url']); ?>"><?php echo $card['image_html']; ?></a>
+        <a href="<?php echo esc_url($card['image_url']); ?>"><?php echo wp_kses($card['image_html'], ['img' => array_fill_keys(['src', 'srcset', 'sizes', 'width', 'height', 'alt', 'class', 'loading', 'decoding', 'fetchpriority'], true)]); ?></a>
     <?php endif; ?>
 
     <h2><a href="<?php echo esc_url($card['title_url']); ?>"><?php echo esc_html($card['title']); ?></a></h2>
@@ -462,6 +483,10 @@ Example: an article card with the author under the title.
     <?php endif; ?>
 </article>
 ```
+
+The image goes through `wp_kses` with the attributes WordPress puts on a
+featured image; `wp_kses_post` would strip `srcset` and `sizes`, and with them
+the responsive image sizes.
 
 > **Override only what you change.** An overridden view no longer receives
 > fixes from plugin updates.
@@ -551,6 +576,22 @@ Article pages load `js/tracking.js`, which reports page views and link clicks
 to the Engine. It is a separate file, configured through data attributes on
 `#content-studio-tracking`, so it works under a Content-Security-Policy that
 blocks inline scripts. Only synced articles are tracked.
+
+What it stores and sends:
+
+- **In the visitor's browser:** a random visitor ID in a first-party cookie,
+  `shazzoo_visitor_id`, that lasts a year, and the same ID in `localStorage`;
+  a session ID in `sessionStorage` as `shazzoo_session_id`.
+- **To the Engine, per page view and per click:** the visitor and session ID,
+  the project, the article's Engine ID and slug, the page URL and path, the
+  referrer, the clicked link, and the browser's user agent. The request
+  itself carries the visitor's IP address. The Engine stores that IP
+  encrypted and derives a location and network from it.
+
+Mention this in the site's privacy statement. Whether visitors have to consent
+first depends on the country and on how the data is used; check that for each
+site. `CONTENT_STUDIO_TRACKING_ENABLED` turns tracking off (see
+[Constants](#constants)).
 
 ## Hooks
 
@@ -695,7 +736,7 @@ stores:
 | `content_studio_last_sync_at`, `_last_sync_count`, `_last_sync_error` | Time (Unix timestamp), article count and error of the last sync |
 | `content_studio_last_publish_confirmation_error` | Last failed confirmation to the Engine |
 | `content_studio_webhook_secret` | The secret the Engine gave when the site connected. Without it the site is not connected |
-| `content_studio_sync_cursor` | Where the last catch-up sync of a connected site stopped. Reset when the Project ID changes |
+| `content_studio_sync_cursor` | Where the last catch-up sync of a connected site stopped. Reset when the Project ID or the published languages change, and by `wp content-studio sync --all` |
 | `content_studio_connect_error` | Why the last attempt to connect failed |
 | `content_studio_last_webhook_at` | When the last valid call from the Engine arrived (Unix timestamp) |
 | `content_studio_missed_webhooks` | How many new articles the sync brought in since the last call from the Engine. From 3 the status card warns |
@@ -704,6 +745,7 @@ stores:
 | `content_studio_published_locales`, `content_studio_default_locale_in_url` | Published languages, and whether the default language has a code in its URLs |
 | `content_studio_applied_published_locales` | The published languages last applied to the existing articles |
 | `content_studio_rewrite_version` | When to rebuild the rewrite rules and Yoast's stored URLs |
+| `content_studio_connect_pending`, `content_studio_connect_result` (transients) | That the keys changed and the site should connect, and the result for the notice. Gone after 5 minutes |
 
 The settings page shows the sync results in the card at the top.
 
@@ -715,7 +757,7 @@ users and options stay.
 | Symptom | Check |
 |---|---|
 | No articles arrive | The sync status on the settings page: the last error, and whether the next sync is overdue (WP-Cron not running). **Sync Articles** runs one immediately |
-| An article is missing | Is its language under **Published Languages**? Otherwise it is not synced. Only `approved` content syncs. Already-confirmed articles are not fetched again, so a deleted post does not come back on its own |
+| An article is missing | Is its language under **Published Languages**? Otherwise it is not synced. Only `approved` content syncs. Already-confirmed articles are not fetched again, so a deleted post does not come back on its own; `wp content-studio sync --all` brings it back |
 | The overview gives a 404 | The overview page was deleted or unpublished. Restore it from **Pages → Trash** and publish it, or deactivate and activate the plugin to create a new one |
 | Language or page URLs give a 404 | Save **Settings → Permalinks** once to rebuild the rewrite rules. A page number past the last page is a 404 on purpose |
 | With Polylang, a language has no overview | Is the language published, and does Polylang have it with the Engine's code? The page is created when the published languages change, so after adding a language to Polylang, untick it under **Published Languages**, save, tick it and save again |
@@ -723,7 +765,7 @@ users and options stay.
 | Articles not confirmed in the Engine | `WP_ENVIRONMENT_TYPE`, `CONTENT_STUDIO_CONFIRM_PUBLISHED`, and the last confirmation error in the sync status |
 | The site does not connect | The reason under *Engine connection* in the sync status. The Engine must reach `/wp-json/content-studio/v1/webhook` over HTTPS on the standard port, the site must be production, and the project must not be connected to another site. Articles keep arriving every 15 minutes in the meantime |
 | Connected, but the status card warns that notifications do not reach the site | A security plugin or firewall blocks the Engine's calls. Allow `POST /wp-json/content-studio/v1/webhook`. Articles keep arriving through the 15-minute sync in the meantime, up to 15 minutes later |
-| No author box | The article needs an author plus an introduction or note from the Engine. Articles synced before the plugin read the Engine's `author_expertise_summary` only get it when the Engine sends them again |
+| No author box | The article needs an author plus an introduction or note from the Engine. Articles synced before the plugin read the Engine's `author_expertise_summary` only get it when the Engine sends them again, or after `wp content-studio sync --all` |
 
 ## Known limitations
 
@@ -736,8 +778,8 @@ users and options stay.
 - **Without a connection, the Engine does not take URL updates.** It only
   confirms articles that are still approved, so after a URL change the Engine
   keeps the old URL of an article it already has as published.
-- **No full re-sync.** There is no button or command yet to fetch every
-  article again, for example to pick up a field added in a plugin update.
+- **A full re-sync needs WP-CLI.** `wp content-studio sync --all` has no
+  button on the settings page.
 - **Dates follow the site language.** The date on a card uses WordPress's
   date format and month names, so a Dutch article on an English site shows
   "August 24, 2026". The same goes for WordPress's own "Page 2" in the title.

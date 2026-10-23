@@ -30,6 +30,7 @@ This plugin connects to the Content Studio Engine at engine.content-studio.com, 
 = 1.1 =
 * Content Studio sends articles to the site as soon as they are ready.
 * Author box under articles, styling for pull-quotes, hreflang without a multilingual plugin.
+* WP-CLI command `wp content-studio sync`, with `--all` to fetch every article again.
 
 = 1.0 =
 * First release.

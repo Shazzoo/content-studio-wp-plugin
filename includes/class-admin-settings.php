@@ -991,7 +991,7 @@ class Content_Studio_Admin_Settings
      *
      * @return int|WP_Error Aantal opgeslagen artikelen.
      */
-    public static function run_sync()
+    public static function run_sync($all = false)
     {
         /*
          * Is deze site aangemeld bij de engine, dan wordt hij gebeld zodra er
@@ -1012,7 +1012,13 @@ class Content_Studio_Admin_Settings
         }
 
         if (Content_Studio_Engine_Client::is_connected()) {
-            $handled = Content_Studio_Engine_Sync::catch_up();
+            // Alles opnieuw: de inhaalronde vooraan laten beginnen en hem
+            // helemaal laten uitlopen, niet na de gewone twintig pagina's.
+            if ($all) {
+                Content_Studio_Engine_Client::reset_cursor();
+            }
+
+            $handled = Content_Studio_Engine_Sync::catch_up($all ? PHP_INT_MAX : 20);
 
             update_option('content_studio_last_sync_at', time());
             update_option('content_studio_last_sync_error', '');
@@ -1021,7 +1027,7 @@ class Content_Studio_Admin_Settings
             return $handled;
         }
 
-        $result = self::sync();
+        $result = self::sync($all);
 
         update_option('content_studio_last_sync_at', time());
 
@@ -1074,7 +1080,11 @@ class Content_Studio_Admin_Settings
     /**
      * @return int|WP_Error
      */
-    private static function sync()
+    /**
+     * @param bool $all Ook wat al gepubliceerd is, niet alleen wat nog op
+     *                  approved staat.
+     */
+    private static function sync($all = false)
     {
         // Zonder deze controle belanden de artikelen onder een post type dat
         // nergens getoond wordt, bijvoorbeeld als de plugin die het
@@ -1086,7 +1096,7 @@ class Content_Studio_Admin_Settings
             );
         }
 
-        $content = Content_Studio_API_Client::fetch_content();
+        $content = Content_Studio_API_Client::fetch_content($all ? '' : 'approved');
 
         if (is_wp_error($content)) {
             return $content;

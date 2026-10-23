@@ -479,3 +479,8 @@ new Content_Studio_Tracking();
 // Voor de hub-artikelen, zodat de auteur direct onder de tekst staat.
 new Content_Studio_Author_Box();
 new Content_Studio_Hub_Articles();
+
+if (defined('WP_CLI') && WP_CLI) {
+    require_once plugin_dir_path(__FILE__) . 'includes/class-cli.php';
+    WP_CLI::add_command('content-studio', 'Content_Studio_CLI');
+}
