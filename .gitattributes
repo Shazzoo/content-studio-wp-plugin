@@ -1,0 +1,3 @@
+# Niet in de release-zip: wat alleen voor deze repo is.
+/.github export-ignore
+/.gitattributes export-ignore
