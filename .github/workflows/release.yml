@@ -1,0 +1,28 @@
+# Hangt bij elke gepubliceerde release een installeerbare zip aan die release.
+# De map in de zip heet content-studio/, zoals op elke site: met de automatische
+# "Source code"-zip van GitHub zou WordPress een tweede plugin naast de oude
+# zetten in plaats van hem bij te werken.
+name: Release zip
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the zip
+        run: git archive --format=zip --prefix=content-studio/ -o "content-studio-${TAG#v}.zip" HEAD
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "content-studio-${TAG#v}.zip" --clobber
