@@ -23,6 +23,8 @@ class Content_Studio_Strings
             'language' => 'Language',
             'hub_title' => 'Cluster overview',
             'hub_intro' => 'Dive into the details with our specialized articles on this topic.',
+            'about_the_author' => 'About the author',
+            'page_of' => 'Page %1$d of %2$d',
         ],
         'nl' => [
             'blog_title' => 'Artikelen',
@@ -34,6 +36,8 @@ class Content_Studio_Strings
             'language' => 'Taal',
             'hub_title' => 'Cluster overzicht',
             'hub_intro' => 'Duik in de details met onze gespecialiseerde artikelen over dit onderwerp.',
+            'about_the_author' => 'Over de auteur',
+            'page_of' => 'Pagina %1$d van %2$d',
         ],
         'de' => [
             'blog_title' => 'Artikel',
@@ -45,6 +49,8 @@ class Content_Studio_Strings
             'language' => 'Sprache',
             'hub_title' => 'Cluster-Übersicht',
             'hub_intro' => 'Tauchen Sie mit unseren spezialisierten Artikeln zu diesem Thema in die Details ein.',
+            'about_the_author' => 'Über den Autor',
+            'page_of' => 'Seite %1$d von %2$d',
         ],
     ];
 

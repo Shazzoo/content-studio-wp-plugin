@@ -275,4 +275,173 @@ class Content_Studio_API_Client
 
         return true;
     }
+
+    /**
+     * Meldt deze site aan bij de Engine, met het adres waarop de Engine hem
+     * mag bellen. Het geheim dat terugkomt staat er maar één keer in; daarna
+     * is opnieuw aanmelden de enige weg.
+     *
+     * @param string $webhook_url
+     *
+     * @return string|WP_Error Het geheim voor de webhook-handtekening.
+     */
+    public static function register_connector($webhook_url)
+    {
+        $response = self::engine_request(
+            'POST',
+            trailingslashit(CONTENT_STUDIO_API_ROUTE) . 'projects/' . rawurlencode(get_option('content_studio_project_id', '')) . '/connector',
+            [
+                'cms' => 'wordpress',
+                'webhook_url' => $webhook_url,
+            ]
+        );
+
+        if (is_wp_error($response)) {
+            return $response;
+        }
+
+        if (empty($response['secret']) || !is_string($response['secret'])) {
+            return new WP_Error('content_studio_no_secret', 'Content Studio did not return a webhook secret.');
+        }
+
+        return $response['secret'];
+    }
+
+    /**
+     * Eén artikel, zoals de Engine het na een webhook geeft.
+     *
+     * @param int $article_id
+     *
+     * @return array|WP_Error
+     */
+    public static function fetch_article($article_id)
+    {
+        $response = self::engine_request('GET', self::v2_project_url('articles/' . absint($article_id)));
+
+        if (is_wp_error($response)) {
+            return $response;
+        }
+
+        return isset($response['data']) && is_array($response['data']) ? $response['data'] : [];
+    }
+
+    /**
+     * De wijzigingen sinds de cursor van deze site.
+     *
+     * @param string $cursor Leeg voor vanaf het begin.
+     * @param int    $limit
+     *
+     * @return array|WP_Error ['data' => [...], 'next_cursor' => ?string, 'has_more' => bool]
+     */
+    public static function fetch_changes($cursor, $limit = 50)
+    {
+        $url = add_query_arg(
+            array_filter(['cursor' => $cursor, 'limit' => $limit]),
+            self::v2_project_url('sync/changes')
+        );
+
+        $response = self::engine_request('GET', $url);
+
+        if (is_wp_error($response)) {
+            return $response;
+        }
+
+        return [
+            'data' => isset($response['data']) && is_array($response['data']) ? $response['data'] : [],
+            'next_cursor' => isset($response['next_cursor']) && is_string($response['next_cursor']) ? $response['next_cursor'] : null,
+            'has_more' => !empty($response['has_more']),
+        ];
+    }
+
+    /**
+     * Vertelt de Engine wat er met een artikel gebeurd is: published, updated,
+     * skipped of failed. Vervangt confirm-published zodra de site is
+     * aangemeld.
+     *
+     * @param int    $article_id
+     * @param string $action
+     * @param array  $details external_ref, url en/of error.
+     *
+     * @return true|WP_Error
+     */
+    public static function acknowledge($article_id, $action, $details = [])
+    {
+        $body = array_merge(
+            [
+                'article_id' => absint($article_id),
+                'action' => $action,
+            ],
+            array_filter($details, static function ($value) {
+                return null !== $value && '' !== $value;
+            })
+        );
+
+        $response = self::engine_request('POST', self::v2_project_url('sync/acknowledgements'), $body);
+
+        return is_wp_error($response) ? $response : true;
+    }
+
+    private static function v2_project_url($path)
+    {
+        return trailingslashit(CONTENT_STUDIO_API_V2_ROUTE)
+            . 'projects/' . rawurlencode(get_option('content_studio_project_id', ''))
+            . '/' . $path;
+    }
+
+    /**
+     * Een aanroep naar de Engine. Bij een fout draagt de WP_Error de
+     * HTTP-status als data en de reden van de Engine als bericht, want dat is
+     * wat iemand in de instellingen wil lezen.
+     *
+     * @param string     $method
+     * @param string     $url
+     * @param array|null $body
+     *
+     * @return array|WP_Error
+     */
+    private static function engine_request($method, $url, $body = null)
+    {
+        $api_key = get_option('content_studio_api_key', '');
+
+        if (empty($api_key)) {
+            return new WP_Error('content_studio_missing_api_key', 'Content Studio API key is not configured.');
+        }
+
+        if (empty(get_option('content_studio_project_id', ''))) {
+            return new WP_Error('content_studio_missing_project_id', 'Content Studio project ID is not configured.');
+        }
+
+        $args = [
+            'method' => $method,
+            'timeout' => 20,
+            'headers' => [
+                'Accept' => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
+            ],
+        ];
+
+        if (null !== $body) {
+            $args['headers']['Content-Type'] = 'application/json';
+            $args['body'] = wp_json_encode($body);
+        }
+
+        $response = wp_remote_request($url, $args);
+
+        if (is_wp_error($response)) {
+            return $response;
+        }
+
+        $status_code = wp_remote_retrieve_response_code($response);
+        $data = json_decode(wp_remote_retrieve_body($response), true);
+
+        if ($status_code < 200 || $status_code >= 300) {
+            $message = is_array($data) && !empty($data['message']) && is_string($data['message'])
+                ? $data['message']
+                : sprintf('Content Studio API returned HTTP %d.', $status_code);
+
+            return new WP_Error('content_studio_api_error', $message, ['status' => $status_code]);
+        }
+
+        return is_array($data) ? $data : [];
+    }
 }

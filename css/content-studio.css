@@ -742,3 +742,99 @@ body.settings_page_content-studio .button:not(.content-studio-button):active {
 .article-image figcaption:empty {
     display: none;
 }
+
+/* Pull-quotes die de Engine als <aside class="pull-quote"> in de tekst zet.
+   Kleuren zijn te overschrijven met de custom properties hieronder. */
+.pull-quote {
+    --_content-studio-pull-quote-accent: var(--content-studio-pull-quote-accent, #f59e0b);
+    --_content-studio-pull-quote-background: var(--content-studio-pull-quote-background, rgb(245 158 11 / 0.06));
+    --_content-studio-pull-quote-text: var(--content-studio-pull-quote-text, #0f172a);
+    position: relative;
+    /* Alleen verticaal: het thema centreert content met margin-inline. */
+    margin-block: 2rem;
+    box-sizing: border-box;
+    padding: 1rem 1.25rem 1rem 1.5rem;
+    border-left: 4px solid var(--_content-studio-pull-quote-accent);
+    border-radius: 0 0.5rem 0.5rem 0;
+    background: var(--_content-studio-pull-quote-background);
+}
+
+.pull-quote p {
+    margin: 0;
+    font-size: 1.25rem;
+    font-style: italic;
+    font-weight: 500;
+    line-height: 1.375;
+    color: var(--_content-studio-pull-quote-text);
+}
+
+@media (min-width: 768px) {
+    .pull-quote p {
+        font-size: 1.5rem;
+    }
+}
+
+.pull-quote p::before {
+    content: "\201C";
+    margin-right: 0.25rem;
+    font-style: normal;
+    color: var(--_content-studio-pull-quote-accent);
+}
+
+.pull-quote p::after {
+    content: "\201D";
+    margin-left: 0.25rem;
+    font-style: normal;
+    color: var(--_content-studio-pull-quote-accent);
+}
+
+/* Alleen mee met een thema dat zelf een donkere modus heeft, niet met
+   prefers-color-scheme: dat maakte de tekst wit op sites die altijd licht
+   zijn. */
+.dark .pull-quote,
+[data-theme='dark'] .pull-quote {
+    --_content-studio-pull-quote-background: var(--content-studio-pull-quote-background, rgb(245 158 11 / 0.12));
+    --_content-studio-pull-quote-text: var(--content-studio-pull-quote-text, #ffffff);
+}
+
+/* Over de auteur, onder een artikel. */
+.content-studio-author {
+    margin-block: 3.5rem 0;
+    padding-top: 2rem;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+    font-family: var(--_content-studio-font-family);
+    color: var(--_content-studio-color-text);
+}
+
+.content-studio-author__label {
+    margin: 0 0 1rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--_content-studio-color-muted);
+}
+
+.content-studio-author__name {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+.content-studio-author__role {
+    margin: 0.25rem 0 0;
+    font-size: 0.875rem;
+    color: var(--_content-studio-color-muted);
+}
+
+.content-studio-author__intro {
+    margin: 1rem 0 0;
+}
+
+.content-studio-author__note {
+    margin: 1.5rem 0 0;
+    padding-left: 1rem;
+    border-left: 2px solid rgba(0, 0, 0, 0.1);
+    font-size: 0.875rem;
+    color: var(--_content-studio-color-muted);
+}

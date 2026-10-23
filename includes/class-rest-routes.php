@@ -20,6 +20,18 @@ class Content_Studio_REST_Routes
                 },
             ]
         );
+
+        // Waar de Engine aanklopt. Open voor iedereen: de handtekening in
+        // de headers bepaalt of een aanroep echt van de Engine komt.
+        register_rest_route(
+            'content-studio/v1',
+            '/webhook',
+            [
+                'methods' => 'POST',
+                'callback' => ['Content_Studio_Engine_Sync', 'handle_webhook'],
+                'permission_callback' => '__return_true',
+            ]
+        );
     }
 
     public function sync_content()

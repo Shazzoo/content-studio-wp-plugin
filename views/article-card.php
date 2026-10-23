@@ -27,7 +27,13 @@ $card = wp_parse_args(isset($card) && is_array($card) ? $card : [], [
     <?php if (!empty($card['show_image'])) : ?>
         <?php if ('' !== $card['image_html']) : ?>
             <a class="content-studio-blog__image-link" href="<?php echo esc_url($card['image_url']); ?>">
-                <?php echo $card['image_html']; ?>
+                <?php
+                // wp_kses_post zou srcset en sizes weghalen, en daarmee de
+                // responsive afbeeldingen.
+                echo wp_kses($card['image_html'], [
+                    'img' => array_fill_keys(['src', 'srcset', 'sizes', 'width', 'height', 'alt', 'class', 'loading', 'decoding', 'fetchpriority'], true),
+                ]);
+                ?>
             </a>
         <?php else : ?>
             <a class="content-studio-blog__image-link content-studio-blog__image-placeholder" <?php echo $card['image_url'] ? 'href="' . esc_url($card['image_url']) . '"' : 'aria-disabled="true" tabindex="-1"'; ?> aria-label="<?php echo esc_attr($card['image_label']); ?>">

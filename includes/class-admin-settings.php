@@ -457,7 +457,7 @@ class Content_Studio_Admin_Settings
             );
         }
 
-        echo '<p class="description">Articles in other languages are synced as drafts: not on the site and not confirmed to Content Studio. With one language the URLs have no language code: /blog/{article}.</p>';
+        echo '<p class="description">Articles in other languages are not synced and not confirmed to Content Studio; they arrive once their language is published. With one language the URLs have no language code: /blog/{article}.</p>';
 
         if (!Content_Studio_Language::is_standalone()) {
             echo '<p class="description">Polylang or WPML decides the language URLs; this setting only decides which articles go live.</p>';
@@ -665,8 +665,8 @@ class Content_Studio_Admin_Settings
         printf(
             '<input type="number" name="%1$s" value="%2$d" min="1" max="%3$d" class="small-text" /> <p class="description">How many articles the blog page shows before it moves to page 2.</p>',
             esc_attr(Content_Studio_Blog_Route::POSTS_PER_PAGE_OPTION),
-            Content_Studio_Blog_Route::posts_per_page(),
-            Content_Studio_Blog_Route::MAX_POSTS_PER_PAGE
+            absint(Content_Studio_Blog_Route::posts_per_page()),
+            absint(Content_Studio_Blog_Route::MAX_POSTS_PER_PAGE)
         );
     }
 
@@ -939,6 +939,12 @@ class Content_Studio_Admin_Settings
             // krijgt geen bezoek, of DISABLE_WP_CRON staat aan zonder echte cron.
             'cron_overdue' => $next_at && $next_at < time() - 15 * MINUTE_IN_SECONDS,
             'confirmation_error' => (string) get_option('content_studio_last_publish_confirmation_error', ''),
+            'connected' => Content_Studio_Engine_Sync::is_connected(),
+            'connect_error' => (string) get_option(Content_Studio_Engine_Sync::CONNECT_ERROR_OPTION, ''),
+            'last_webhook_at' => absint(get_option(Content_Studio_Engine_Sync::LAST_WEBHOOK_OPTION, 0)) ?: null,
+            // Nieuwe artikelen komen alleen via de inhaalronde binnen: iets
+            // houdt de webhooks van de Engine tegen.
+            'missed_webhooks' => absint(get_option(Content_Studio_Engine_Sync::MISSED_WEBHOOKS_OPTION, 0)),
         ];
     }
 
@@ -955,6 +961,18 @@ class Content_Studio_Admin_Settings
                 'content_studio_unknown_post_type',
                 sprintf('Post type "%s" is not registered, so Content Studio did not sync.', content_studio_post_type())
             );
+        }
+
+        // Zelf aanmelden met de sleutels die er al staan. Lukt het niet, dan
+        // blijft de oude ophaalronde werken.
+        if (Content_Studio_Engine_Sync::is_configured() && !Content_Studio_Engine_Sync::is_connected()) {
+            Content_Studio_Engine_Sync::connect();
+        }
+
+        // Aangemeld: de Engine belt bij elk artikel, dit is alleen het vangnet
+        // voor wat een gemiste webhook liet liggen.
+        if (Content_Studio_Engine_Sync::is_connected()) {
+            return Content_Studio_Engine_Sync::catch_up();
         }
 
         $content = Content_Studio_API_Client::fetch_content();

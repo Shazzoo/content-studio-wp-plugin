@@ -3,8 +3,10 @@
 Publishes the articles you approve in the Content Studio Engine on a
 WordPress site. The plugin syncs them in as normal posts, gives them an
 overview page with pagination and per-language URLs, writes their SEO
-metadata, lists the articles under their hub article, reports page views back
-to the Engine and confirms to the Engine once an article is live.
+metadata, shows the author under each article, lists the articles under their
+hub article, reports page views back to the Engine and confirms to the Engine
+once an article is live. Once the site is connected, the Engine sends each
+article the moment it is ready instead of waiting for the next sync.
 
 This guide is for developers integrating or customizing the plugin on a WordPress site. It covers installation, configuration, behavior, and supported extension points. It does not document plugin development or release procedures.
 
@@ -16,6 +18,9 @@ This guide is for developers integrating or customizing the plugin on a WordPres
   The blog, language and page URLs are rewrite rules.
 - Outgoing HTTPS to the Engine, for the sync and for downloading images.
 - WP-Cron, or a real cron job that calls it (see [Syncing](#syncing)).
+- For the Engine to send articles itself: the site reachable from the internet
+  over HTTPS on the standard port. Without that the plugin keeps syncing every
+  15 minutes (see [Connected to the Engine](#connected-to-the-engine)).
 
 ## Setup
 
@@ -40,8 +45,9 @@ four groups.
 
 The card at the top of the page shows the **sync status**: the number of
 synced articles, when the last sync ran and what it did or why it failed, when
-the next one is due (with a warning when WP-Cron has stopped running), and the
-last failed publish confirmation. **Sync Articles** there runs a sync now.
+the next one is due (with a warning when WP-Cron has stopped running), whether
+the site is connected to the Engine (or why not), and the last failed publish
+confirmation. **Sync Articles** there runs a sync now.
 
 ### The overview page
 
@@ -68,13 +74,13 @@ languages or the post type change and the page is missing.
 Install the plugin package supplied for your site through **Plugins → Add New Plugin → Upload Plugin**, then activate it. Activation creates the overview page and schedules synchronization. Before the first sync:
 
 - Use a backup or staging site when evaluating the plugin. Syncing creates posts, pages, users, and media.
-- Set `WP_ENVIRONMENT_TYPE` to `staging` or `local` on non-production copies connected to a real Engine project. Otherwise the plugin may confirm articles as published, causing the Engine to stop offering them to the live site. See [Local development and staging](#local-development-and-staging).
+- Set `WP_ENVIRONMENT_TYPE` to `staging` or `local` on non-production copies connected to a real Engine project. Otherwise the plugin may confirm articles as published, causing the Engine to stop offering them to the live site, and may connect the project to the copy instead of the live site. See [Local development and staging](#local-development-and-staging).
 - Use pretty permalinks; *Plain* permalinks do not support the plugin's URLs.
 - If `/blog` is already used by a site page, the plugin preserves it and chooses an available overview URL. Set the preferred **Blog URL** in the plugin settings.
 - Decide before the first sync whether articles should use the normal Posts type or a custom post type. Existing articles are not moved if this is changed later; see [Storing articles under your own post type](#storing-articles-under-your-own-post-type).
 - If using Polylang or WPML, configure the site's languages with the same codes as the Engine project (`nl`, `en`, etc.).
 
-In **Settings → Content Studio**, enter the Engine API key and Project ID and save. Set the Blog URL, page size, category, and fallback author, then run **Sync Articles**. Once the Engine languages appear in **Published Languages**, choose which ones to publish and select the default language. Style settings can be adjusted with the live preview.
+In **Settings → Content Studio**, enter the Engine API key and Project ID and save. Saving connects the site to the Engine; the status card shows whether that worked. Set the Blog URL, page size, category, and fallback author, then run **Sync Articles**. Once the Engine languages appear in **Published Languages**, choose which ones to publish and select the default language. Style settings can be adjusted with the live preview.
 
 Confirm that the status card reports a successful sync, the overview page lists articles, and an article page opens. For sites with a Content-Security-Policy, allow `connect-src https://engine.content-studio.com` for [tracking](#tracking).
 
@@ -82,9 +88,19 @@ For upgrades, install the package supplied for the site over the existing plugin
 
 ## Syncing
 
-WP-Cron syncs every 15 minutes. **Sync Articles** on the settings page syncs
-immediately, as does `POST /wp-json/content-studio/v1/sync` for a user with
-`manage_options`. All three record their result in the sync status.
+Articles reach the site in one of two ways:
+
+- **Connected:** the Engine calls the site as soon as an article is ready, and
+  the 15-minute sync only picks up what a missed call left behind. See
+  [Connected to the Engine](#connected-to-the-engine).
+- **Not connected:** WP-Cron fetches every approved article every 15 minutes.
+  See [What a sync does](#what-a-sync-does).
+
+A connected site no longer fetches all approved content, so the Engine is the
+only one deciding what goes live. **Sync Articles** on the settings page syncs
+immediately, as does
+`POST /wp-json/content-studio/v1/sync` for a user with `manage_options`. All
+three record their result in the sync status.
 
 WP-Cron only runs when the site gets visitors. On a quiet site, switch it to
 a real cron job so syncs run on time:
@@ -98,16 +114,60 @@ define('DISABLE_WP_CRON', true);
 */5 * * * * curl -s https://example.com/wp-cron.php > /dev/null
 ```
 
+### Connected to the Engine
+
+The plugin connects the site when the API key or Project ID is saved, and
+otherwise on the next sync. It tells the Engine that this is a WordPress site
+and where to call it: `/wp-json/content-studio/v1/webhook`. The Engine answers
+with a secret, which the plugin stores and uses to check every incoming call.
+Connecting only happens on production (see
+[`CONTENT_STUDIO_CONFIRM_PUBLISHED`](#constants)).
+
+Once connected:
+
+1. When an article is ready, the Engine calls the webhook with only the
+   article's ID. The plugin checks the signature, fetches the article itself
+   with its own API key, and stores it the same way as a sync does (steps 1–5
+   [below](#what-a-sync-does)).
+2. It then reports back to the Engine: `published` the first time an article
+   goes live, `updated` after that, `skipped` when its language is not
+   published or it ends up as a draft, and `failed` when it could not be
+   stored. This replaces the confirmation of step 6.
+3. The 15-minute sync asks the Engine for every article that changed since
+   the last sync, using a cursor the plugin stores. That brings in articles
+   from missed calls and edits made in the Engine after publication. If the
+   Engine no longer knows the site, the plugin connects again.
+
+Publishing an article by hand, putting a language's articles back live, and a
+changed URL are reported the same way, so the Engine always has the live URL.
+
+A security plugin or firewall that blocks the REST API for visitors who are not
+logged in also blocks the Engine's calls. Connecting still succeeds, because
+the Engine does not call the site when it signs up, and articles still arrive
+through the 15-minute sync, only later. The status card notices this: when the
+sync has had to bring in 3 new articles in a row without a call from the
+Engine in between, it warns that the calls do not reach the site. One missed
+call is not enough, because the sync sometimes picks up an article just before
+the Engine announces it, and the Engine then never sends that call. Allow
+`POST /wp-json/content-studio/v1/webhook` in the security plugin or firewall;
+every call is checked against the secret, so opening it is safe.
+
+Connecting fails when the Engine cannot reach the site, or when the project is
+already connected to another site. The status card then shows the Engine's
+reason and the plugin keeps fetching every 15 minutes. A project can be
+connected to only one site; break the old connection in Content Studio before
+connecting a new one.
+
 ### What a sync does
 
-The sync first fetches the project from the Engine, for its languages and
-main language. Then it asks for content with status `approved`, page by page,
-and for each article that has an ID and a title it:
+Without a connection, the sync first fetches the project from the Engine, for
+its languages and main language. Then it asks for content with status
+`approved`, page by page, and for each article that has an ID and a title it:
 
 1. creates the post, or updates the one with the same Engine ID;
 2. sets title, body, excerpt (the Engine's excerpt, else its meta
    description), slug, publication date, author and category. An article in a
-   language the site does not publish becomes a draft (see
+   language the site does not publish is skipped (see
    [Languages](#languages));
 3. downloads the featured image into the media library, and the diagrams and
    illustrations in the body into the uploads folder, replacing their
@@ -120,18 +180,27 @@ and for each article that has an ID and a title it:
    production (see [`CONTENT_STUDIO_CONFIRM_PUBLISHED`](#constants)).
 
 Once confirmed, the Engine marks the article published and leaves it out of
-the next syncs. Confirmation also runs when an editor publishes a synced
+the next syncs. A connected site still gets later changes through its
+15-minute sync. Confirmation also runs when an editor publishes a synced
 article by hand, and when the plugin publishes the drafts of a language that
 is published again.
 
 When a confirmed article's URL changes, for example after a change to the
-Blog URL, the plugin offers the new URL the next time the post is saved. The
-Engine does not accept URL updates for published articles yet (see
+Blog URL, the plugin offers the new URL the next time the post is saved. A
+connected site reports it as `updated`. Without a connection the Engine does
+not accept URL updates for published articles (see
 [Known limitations](#known-limitations)); the plugin treats that answer as
 "already published", not as a failed confirmation.
 
 The body passes through `wp_kses_post`, so anything WordPress does not allow
 in post content, such as `<script>` or `<iframe>`, is stripped.
+
+The same article is never stored twice at once. A call from the Engine that
+arrives during the 15-minute sync, or **Sync Articles** during a scheduled
+sync, waits for the other to finish and then updates the post it created,
+instead of creating a second one. The lock is a row named
+`_content_studio_lock_*` in `wp_options`; it is removed when the article is
+stored, and one left behind by a request that died expires after 5 minutes.
 
 If the post type the articles use is not registered (see
 [Storing articles under your own post type](#storing-articles-under-your-own-post-type)),
@@ -150,8 +219,9 @@ author from the settings. Imported featured images belong to a user called
 user with that whole string as its name; the JSON-LD lists the names
 separately.
 
-The Engine puts an author box with the author's role and experience at the
-top of the article body itself, so it arrives with the text.
+The Engine sends the author's role, experience and a short introduction as
+separate fields. The plugin shows them in an author box under the article; see
+[Author box and pull-quotes](#author-box-and-pull-quotes).
 
 ## URLs
 
@@ -231,15 +301,16 @@ by default only the project's main language. The list of languages comes from
 the Engine, fetched at every sync; a language the Engine adds later appears
 unticked.
 
-Articles in other languages are still synced, but as drafts: they are not on
-the site, not in the sitemap, feed or search, and not confirmed to the
-Engine, so the Engine keeps offering them. Tick a language later and its
-articles go live, and are confirmed, on the next page load. Changing the
-setting applies straight away to articles already on the site, including
-after an update from a version without this setting: on such a site the
-articles outside the main language become drafts.
+Articles in other languages are not synced, the same as in the Laravel
+plugin. They are not confirmed to the Engine either (a connected site reports
+them as `skipped`), so the Engine keeps offering them. Tick a language later
+and its articles arrive with the next sync; on a connected site the plugin
+then starts its catch-up from the beginning, because it had already passed
+them.
 
-The plugin only puts back drafts it made itself (marked with
+Articles that are already on the site follow the setting straight away:
+untick a language and its articles become drafts, tick it again and they go
+back live. The plugin only puts back drafts it made itself (marked with
 `_content_studio_unpublished_language`); a draft an editor made stays a
 draft.
 
@@ -301,6 +372,22 @@ section in the hub's language. Articles synced before the plugin stored
 `hub_content_id` only get it when the Engine sends them again. Override
 `hub-articles.php` to change the section.
 
+## Author box and pull-quotes
+
+Under each article, above the hub section, the plugin shows an "About the
+author" box: the author's name, role and experience, the Engine's introduction
+of the author and why they wrote this article, and a note on where their
+expertise ends. The box only appears when the article has an author and at
+least an introduction or a note. The heading follows the article's language.
+Override `author-box.php` to change it.
+
+The Engine marks quotes in the body as `<aside class="pull-quote">`. The
+plugin styles them with an accent border and a tinted background. Change the
+colours from the theme with `--content-studio-pull-quote-accent`,
+`--content-studio-pull-quote-background` and `--content-studio-pull-quote-text`,
+or style `.pull-quote` yourself. The colours only switch to dark when the theme
+uses a `.dark` class or `data-theme="dark"`.
+
 ## Overriding views
 
 Every front-end view can be replaced from the theme. Put a file with the same
@@ -318,6 +405,7 @@ wp-content/themes/your-theme/content-studio/article-card.php
 | `article-list.php` | `$attributes`, `$posts` (`WP_Query`), `$pagination` | Article overview, for the block and the overview page |
 | `pagination.php` | `$pagination` | Page links under the overview |
 | `hub-articles.php` | `$title`, `$intro`, `$articles` (`WP_Query`), `$attributes` | Articles under a hub article |
+| `author-box.php` | `$title`, `$author_name`, `$role`, `$intro` (list of paragraphs), `$boundary_note` | The author box under an article |
 | `language-switcher.php` | `$languages` | The language switcher without Polylang or WPML |
 
 Copy the plugin's version from `views/` as a starting point; the docblock at
@@ -435,6 +523,16 @@ Without an SEO plugin, article pages get:
 The overview gets `Blog` JSON-LD listing the articles on that page. Every
 overview language and page has its own canonical.
 
+With more than one published language and no Polylang or WPML, article pages
+and the first page of the overview also get `hreflang` links: one per
+published language that has a translation, the page's own language included,
+and `x-default` pointing at the default language. Translations are the
+articles that share the Engine's `cluster_key`. They are written with an SEO
+plugin active too, because those leave hreflang to multilingual plugins. Later
+overview pages get none, because another language has other articles there.
+Polylang and WPML write these links themselves. The links are in the page head
+only, not in the sitemap; search engines read either.
+
 **Yoast SEO** takes over the tags and schema. The plugin then hands Yoast the
 Engine's values: the SEO title as `%%title%%`, the meta description, and the
 Open Graph and Twitter texts. A value an editor fills in in Yoast always wins.
@@ -473,12 +571,12 @@ add_filter('content_studio_output_meta_tags', '__return_true');
 ### `content_studio_strings`
 
 The text visitors see, per language: the overview's heading, "No articles
-yet...", the reading time, the hub section and the labels of the pagination
-and language switcher. The plugin ships English, Dutch and German, and picks
-the language of the article (cards, hub section) or of the overview being
-shown. Any other language falls back to English. WordPress's own translation
-files follow the site language rather than the article, which is why the
-plugin keeps these itself.
+yet...", the reading time, the hub section, the author box heading and the
+labels of the pagination and language switcher. The plugin ships English,
+Dutch and German, and picks the language of the article (cards, hub section,
+author box) or of the overview being shown. Any other language falls back to
+English. WordPress's own translation files follow the site language rather
+than the article, which is why the plugin keeps these itself.
 
 ```php
 add_filter('content_studio_strings', function ($strings) {
@@ -497,7 +595,8 @@ add_filter('content_studio_strings', function ($strings) {
 ```
 
 The keys are in `includes/class-strings.php`. `read_time` takes the minutes
-as `%d`.
+as `%d`. `page_of` is the page number Yoast puts in the overview's title
+(`%%page%%`) and takes the current and last page as `%1$d` and `%2$d`.
 
 ### `content_studio_display_locale`
 
@@ -516,7 +615,8 @@ Set these in `wp-config.php`.
 | Constant | Default | Meaning |
 |---|---|---|
 | `CONTENT_STUDIO_API_ROUTE` | `https://engine.content-studio.com/api/v1` | Engine API base URL |
-| `CONTENT_STUDIO_CONFIRM_PUBLISHED` | `true` on production | Whether to confirm published articles to the Engine. Defaults to `WP_ENVIRONMENT_TYPE === 'production'`, so a local or staging copy pointing at the same Engine does not mark real content as published |
+| `CONTENT_STUDIO_API_V2_ROUTE` | `https://engine.content-studio.com/api/v2` | Engine API base URL for a connected site |
+| `CONTENT_STUDIO_CONFIRM_PUBLISHED` | `true` on production | Whether to confirm published articles to the Engine and connect the site to it. Defaults to `WP_ENVIRONMENT_TYPE === 'production'`, so a local or staging copy pointing at the same Engine does not mark real content as published or take over the project's connection |
 | `CONTENT_STUDIO_TRACKING_ENABLED` | `true` | `false` turns tracking off |
 | `CONTENT_STUDIO_TRACKING_ENDPOINT` | `https://engine.content-studio.com/api/tracking/event` | Where tracking events go. Must be an absolute URL; anything else falls back to the default |
 
@@ -575,7 +675,9 @@ different URL per language is not available for a custom post type.
   not set, and on production the plugin confirms every synced article to the
   Engine. A local or staging copy pointing at a real project would then mark
   that project's articles as published, and they drop out of the live site's
-  sync. Use `define('WP_ENVIRONMENT_TYPE', 'local');` (or `staging`), or set
+  sync. It would also connect the project to the copy, and the live site
+  could then not connect until that connection is broken in Content Studio.
+  Use `define('WP_ENVIRONMENT_TYPE', 'local');` (or `staging`), or set
   `CONTENT_STUDIO_CONFIRM_PUBLISHED` to `false`.
 - **Tracking still runs** outside production, so local page views reach the
   Engine. Set `CONTENT_STUDIO_TRACKING_ENABLED` to `false` locally.
@@ -591,6 +693,11 @@ stores:
 |---|---|
 | `content_studio_last_sync_at`, `_last_sync_count`, `_last_sync_error` | Time (Unix timestamp), article count and error of the last sync |
 | `content_studio_last_publish_confirmation_error` | Last failed confirmation to the Engine |
+| `content_studio_webhook_secret` | The secret the Engine gave when the site connected. Without it the site is not connected |
+| `content_studio_sync_cursor` | Where the last catch-up sync of a connected site stopped. Reset when the Project ID changes |
+| `content_studio_connect_error` | Why the last attempt to connect failed |
+| `content_studio_last_webhook_at` | When the last valid call from the Engine arrived (Unix timestamp) |
+| `content_studio_missed_webhooks` | How many new articles the sync brought in since the last call from the Engine. From 3 the status card warns |
 | `content_studio_engine_primary_locale`, `_engine_locales` | The project's languages, as the Engine reported them |
 | `content_studio_blog_slug`, `content_studio_blog_slugs`, `content_studio_previous_blog_slugs` | The Blog URL, the URLs per language, and the earlier ones that redirect |
 | `content_studio_published_locales`, `content_studio_default_locale_in_url` | Published languages, and whether the default language has a code in its URLs |
@@ -607,21 +714,27 @@ users and options stay.
 | Symptom | Check |
 |---|---|
 | No articles arrive | The sync status on the settings page: the last error, and whether the next sync is overdue (WP-Cron not running). **Sync Articles** runs one immediately |
-| An article is missing | Is its language under **Published Languages**? Otherwise it is a draft. Only `approved` content syncs. Already-confirmed articles are not fetched again, so a deleted post does not come back on its own |
+| An article is missing | Is its language under **Published Languages**? Otherwise it is not synced. Only `approved` content syncs. Already-confirmed articles are not fetched again, so a deleted post does not come back on its own |
 | The overview gives a 404 | The overview page was deleted or unpublished. Restore it from **Pages → Trash** and publish it, or deactivate and activate the plugin to create a new one |
 | Language or page URLs give a 404 | Save **Settings → Permalinks** once to rebuild the rewrite rules. A page number past the last page is a 404 on purpose |
 | With Polylang, a language has no overview | Is the language published, and does Polylang have it with the Engine's code? The page is created when the published languages change, so after adding a language to Polylang, untick it under **Published Languages**, save, tick it and save again |
 | Featured image missing | `_content_studio_image_import_error` on the post |
 | Articles not confirmed in the Engine | `WP_ENVIRONMENT_TYPE`, `CONTENT_STUDIO_CONFIRM_PUBLISHED`, and the last confirmation error in the sync status |
+| The site does not connect | The reason under *Engine connection* in the sync status. The Engine must reach `/wp-json/content-studio/v1/webhook` over HTTPS on the standard port, the site must be production, and the project must not be connected to another site. Articles keep arriving every 15 minutes in the meantime |
+| Connected, but the status card warns that notifications do not reach the site | A security plugin or firewall blocks the Engine's calls. Allow `POST /wp-json/content-studio/v1/webhook`. Articles keep arriving through the 15-minute sync in the meantime, up to 15 minutes later |
+| No author box | The article needs an author plus an introduction or note from the Engine. Articles synced before the plugin read the Engine's `author_expertise_summary` only get it when the Engine sends them again |
 
 ## Known limitations
 
-- **Changes after publication do not sync.** Once an article is confirmed,
-  the Engine no longer sends it, so edits made in the Engine afterwards do not
-  reach WordPress. Neither does withdrawing or deleting it there.
-- **The Engine does not take URL updates.** It only confirms articles that
-  are still approved, so after a URL change the Engine keeps the old URL of
-  an article it already has as published.
+- **Without a connection, changes after publication do not sync.** Once an
+  article is confirmed, the Engine no longer sends it, so edits made in the
+  Engine afterwards do not reach WordPress. A connected site gets them within
+  15 minutes.
+- **Withdrawing or deleting an article** in the Engine never reaches
+  WordPress, connected or not. Unpublish or delete the post by hand.
+- **Without a connection, the Engine does not take URL updates.** It only
+  confirms articles that are still approved, so after a URL change the Engine
+  keeps the old URL of an article it already has as published.
 - **No full re-sync.** There is no button or command yet to fetch every
   article again, for example to pick up a field added in a plugin update.
 - **Dates follow the site language.** The date on a card uses WordPress's

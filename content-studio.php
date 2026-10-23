@@ -4,6 +4,8 @@
 * Plugin Name: Content Studio
 * Description: Fetches article content from an external API and stores it locally.
 * Version: 1.0
+* License: GPLv2 or later
+* License URI: https://www.gnu.org/licenses/gpl-2.0.html
 */
 
 if (!defined('ABSPATH')) {
@@ -12,6 +14,12 @@ if (!defined('ABSPATH')) {
 
 if (!defined('CONTENT_STUDIO_API_ROUTE')) {
     define('CONTENT_STUDIO_API_ROUTE', 'https://engine.content-studio.com/api/v1');
+}
+
+// V2: de Engine belt de site zodra een artikel klaarstaat, en de site haalt
+// het hier op.
+if (!defined('CONTENT_STUDIO_API_V2_ROUTE')) {
+    define('CONTENT_STUDIO_API_V2_ROUTE', 'https://engine.content-studio.com/api/v2');
 }
 
 define('CONTENT_STUDIO_PLUGIN_FILE', __FILE__);
@@ -436,6 +444,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-language.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-strings.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-api-client.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-storage.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-engine-sync.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-rest-routes.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-admin-settings.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-latest-posts-block.php';
@@ -443,6 +452,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-blog-route.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-publish-confirmation.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-seo.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-tracking.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-author-box.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-hub-articles.php';
 
 register_activation_hook(__FILE__, ['Content_Studio_Blog_Route', 'activate']);
@@ -452,10 +462,13 @@ register_deactivation_hook(__FILE__, 'content_studio_clear_sync_schedule');
 add_action(CONTENT_STUDIO_SYNC_CRON_EVENT, 'content_studio_run_scheduled_sync');
 
 new Content_Studio_REST_Routes();
+new Content_Studio_Engine_Sync();
 new Content_Studio_Admin_Settings();
 new Content_Studio_Latest_Posts_Block();
 new Content_Studio_Blog_Route();
 new Content_Studio_Publish_Confirmation();
 new Content_Studio_Seo();
 new Content_Studio_Tracking();
+// Voor de hub-artikelen, zodat de auteur direct onder de tekst staat.
+new Content_Studio_Author_Box();
 new Content_Studio_Hub_Articles();
