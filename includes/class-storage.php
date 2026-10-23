@@ -59,23 +59,41 @@ class Content_Studio_Storage
     }
 
     /**
-     * Slaat één artikel op, voor de V2-sync die per artikel aan de Engine
-     * terugmeldt wat ermee gebeurde.
+     * Eén artikel uit de engine, langs exact dezelfde toewijzing als de
+     * ophaalronde. De webhook-weg heeft dat nodig: twee keer hetzelfde
+     * veldwerk is twee keer iets om te vergeten.
      *
      * @param array $article
      *
-     * @return int Post-ID, of 0 als het artikel niet opgeslagen kon worden.
+     * @return int Het post-ID, of 0 als het niet verwerkt kon worden.
      */
     public static function save_one($article)
     {
-        $external_id = is_array($article) ? self::get_article_external_id($article) : '';
-        $title = isset($article['title']) ? sanitize_text_field($article['title']) : '';
-
-        if (empty($external_id) || empty($title)) {
+        if (!is_array($article)) {
             return 0;
         }
 
-        return self::save_article($external_id, $article);
+        $external_id = self::get_article_external_id($article);
+        $title = isset($article['title']) ? sanitize_text_field($article['title']) : '';
+
+        if ('' === $external_id || '' === $title) {
+            return 0;
+        }
+
+        return (int) self::save_article($external_id, $article);
+    }
+
+    /**
+     * Of dit artikel hier al staat. Dat bepaalt of een publicatie voor deze
+     * site nieuws is of een correctie - en de engine hoort het verschil.
+     *
+     * @param string $external_id
+     *
+     * @return bool
+     */
+    public static function knows_external_id($external_id)
+    {
+        return null !== self::get_by_external_id((string) $external_id);
     }
 
     /**
@@ -167,7 +185,7 @@ class Content_Studio_Storage
         // Articles in a language that was not published were skipped, and a
         // connected site's catch-up is already past them. Starting it from
         // the beginning brings in the ones that may now go live.
-        Content_Studio_Engine_Sync::reset_cursor();
+        Content_Studio_Engine_Client::reset_cursor();
 
         $post_ids = get_posts([
             'post_type' => content_studio_post_type(),
@@ -467,7 +485,7 @@ class Content_Studio_Storage
         // request could not be confirmed from transition_post_status yet.
         Content_Studio_Publish_Confirmation::maybe_confirm($post_id);
 
-        return $post_id;
+        return (int) $post_id;
     }
 
     private static function get_post_status($article)
@@ -833,7 +851,10 @@ class Content_Studio_Storage
             'author_name',
             'author_role_title',
             'author_experience_label',
-            'author_experience_summary',
+            // De Engine stuurt dit als author_expertise_summary; de oude
+            // sleutel stond nooit in het antwoord, dus werd deze meta
+            // op geen enkele site ooit gevuld.
+            'author_expertise_summary',
             'author_article_relevance',
             'author_boundary_note',
             'source_month',
@@ -842,12 +863,6 @@ class Content_Studio_Storage
             'content_hash',
             'updated_at',
         ];
-
-        // De Engine stuurt dit veld als author_expertise_summary. De meta-key
-        // blijft de oude naam, want die staat al op elke site.
-        if (array_key_exists('author_expertise_summary', $article)) {
-            $article['author_experience_summary'] = $article['author_expertise_summary'];
-        }
 
         foreach ($meta_keys as $key) {
             if (!array_key_exists($key, $article)) {

@@ -80,7 +80,7 @@ Install the plugin package supplied for your site through **Plugins → Add New 
 - Decide before the first sync whether articles should use the normal Posts type or a custom post type. Existing articles are not moved if this is changed later; see [Storing articles under your own post type](#storing-articles-under-your-own-post-type).
 - If using Polylang or WPML, configure the site's languages with the same codes as the Engine project (`nl`, `en`, etc.).
 
-In **Settings → Content Studio**, enter the Engine API key and Project ID and save. Saving connects the site to the Engine; the status card shows whether that worked. Set the Blog URL, page size, category, and fallback author, then run **Sync Articles**. Once the Engine languages appear in **Published Languages**, choose which ones to publish and select the default language. Style settings can be adjusted with the live preview.
+In **Settings → Content Studio**, enter the Engine API key and Project ID and save. Saving connects the site to the Engine; a notice and the status card show whether that worked. Set the Blog URL, page size, category, and fallback author, then run **Sync Articles**. Once the Engine languages appear in **Published Languages**, choose which ones to publish and select the default language. Style settings can be adjusted with the live preview.
 
 Confirm that the status card reports a successful sync, the overview page lists articles, and an article page opens. For sites with a Content-Security-Policy, allow `connect-src https://engine.content-studio.com` for [tracking](#tracking).
 
@@ -116,8 +116,9 @@ define('DISABLE_WP_CRON', true);
 
 ### Connected to the Engine
 
-The plugin connects the site when the API key or Project ID is saved, and
-otherwise on the next sync. It tells the Engine that this is a WordPress site
+The plugin connects the site when the API key or Project ID is saved, and shows
+the result in a notice; a site that already had its keys connects on its next
+sync. It tells the Engine that this is a WordPress site
 and where to call it: `/wp-json/content-studio/v1/webhook`. The Engine answers
 with a secret, which the plugin stores and uses to check every incoming call.
 Connecting only happens on production (see
@@ -495,7 +496,7 @@ $author = get_post_meta(get_the_ID(), '_content_studio_author_name', true);
 | `og_title`, `og_description`, `twitter_title`, `twitter_description` | Social titles and descriptions |
 | `image_url`, `featured_image_alt` | The featured image's Engine URL and alt text |
 | `author_name` | Author, or several separated by `,` or `;` |
-| `author_role_title`, `author_experience_label`, `author_experience_summary`, `author_article_relevance`, `author_boundary_note` | Author details |
+| `author_role_title`, `author_experience_label`, `author_expertise_summary`, `author_article_relevance`, `author_boundary_note` | Author details |
 | `cluster_key`, `hub_content_id` | Topic cluster, and the Engine ID of the hub article this one belongs to |
 | `primary_keyword`, `funnel_stage`, `intent`, `angle`, `source_month` | Editorial metadata |
 | `published_at`, `date`, `generated_at`, `planned_at`, `updated_at` | Engine dates |

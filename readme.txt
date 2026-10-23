@@ -3,7 +3,7 @@ Tags: content, articles, seo, blog
 Requires at least: 5.6
 Tested up to: 7.1
 Requires PHP: 7.0
-Stable tag: 1.0
+Stable tag: 1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -26,6 +26,10 @@ This plugin connects to the Content Studio Engine at engine.content-studio.com, 
 * Tracking: on article pages, the visitor's browser reports page views and link clicks to the Engine. Turn this off with the CONTENT_STUDIO_TRACKING_ENABLED constant.
 
 == Changelog ==
+
+= 1.1 =
+* Content Studio sends articles to the site as soon as they are ready.
+* Author box under articles, styling for pull-quotes, hreflang without a multilingual plugin.
 
 = 1.0 =
 * First release.

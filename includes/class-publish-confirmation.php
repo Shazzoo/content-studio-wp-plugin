@@ -70,11 +70,13 @@ class Content_Studio_Publish_Confirmation
      */
     public static function maybe_confirm($post_id)
     {
+        // De V2-sync meldt zijn eigen artikelen terug, met het post-ID en de
+        // url erbij. Eén kanaal meldt, niet twee.
         if (Content_Studio_Engine_Sync::is_syncing()) {
             return false;
         }
 
-        $connected = Content_Studio_Engine_Sync::is_connected();
+        $connected = Content_Studio_Engine_Client::is_connected();
 
         // Alleen productie bevestigt publicatie bij de Engine. Een lokale of
         // staging-installatie die naar dezelfde Engine wijst, zou anders echte
@@ -114,15 +116,16 @@ class Content_Studio_Publish_Confirmation
             return false;
         }
 
+        // Buiten de sync om (een redacteur publiceert, een taal gaat weer
+        // live, de url verandert) meldt een aangemelde site het ook via V2,
+        // nooit via de V1-bevestiging.
         if ($connected) {
-            $response = Content_Studio_API_Client::acknowledge(
+            $response = Content_Studio_Engine_Client::acknowledge(
                 $content_id,
                 $confirmed_at ? 'updated' : 'published',
-                [
-                    'external_ref' => (string) $post_id,
-                    'url' => $published_url,
-                ]
-            );
+                (string) $post_id,
+                $published_url
+            ) ? true : new WP_Error('content_studio_api_error', Content_Studio_Engine_Client::last_message());
         } else {
             $response = Content_Studio_API_Client::confirm_published($content_id, $published_url);
         }

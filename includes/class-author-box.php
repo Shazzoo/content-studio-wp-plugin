@@ -32,7 +32,7 @@ class Content_Studio_Author_Box
         };
 
         $name = $field('author_name');
-        $intro = array_values(array_filter([$field('author_experience_summary'), $field('author_article_relevance')], 'strlen'));
+        $intro = array_values(array_filter([$field('author_expertise_summary'), $field('author_article_relevance')], 'strlen'));
         $boundary_note = $field('author_boundary_note');
 
         if ('' === $name || ([] === $intro && '' === $boundary_note)) {

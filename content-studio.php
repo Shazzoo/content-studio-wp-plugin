@@ -3,7 +3,7 @@
 /*
 * Plugin Name: Content Studio
 * Description: Fetches article content from an external API and stores it locally.
-* Version: 1.0
+* Version: 1.1
 * License: GPLv2 or later
 * License URI: https://www.gnu.org/licenses/gpl-2.0.html
 */
@@ -16,10 +16,16 @@ if (!defined('CONTENT_STUDIO_API_ROUTE')) {
     define('CONTENT_STUDIO_API_ROUTE', 'https://engine.content-studio.com/api/v1');
 }
 
-// V2: de Engine belt de site zodra een artikel klaarstaat, en de site haalt
-// het hier op.
+/*
+ * Het V2-adres volgt het V1-adres, zodat een site die naar een eigen engine
+ * wijst daar ook voor V2 naar wijst. Een site met een heel ander pad kan deze
+ * constante gewoon zelf definiëren.
+ */
 if (!defined('CONTENT_STUDIO_API_V2_ROUTE')) {
-    define('CONTENT_STUDIO_API_V2_ROUTE', 'https://engine.content-studio.com/api/v2');
+    define(
+        'CONTENT_STUDIO_API_V2_ROUTE',
+        rtrim(preg_replace('#/v1/?$#', '', CONTENT_STUDIO_API_ROUTE), '/') . '/v2'
+    );
 }
 
 define('CONTENT_STUDIO_PLUGIN_FILE', __FILE__);
@@ -444,6 +450,8 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-language.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-strings.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-api-client.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-storage.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-webhook-signature.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-engine-client.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-engine-sync.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-rest-routes.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-admin-settings.php';
@@ -462,7 +470,6 @@ register_deactivation_hook(__FILE__, 'content_studio_clear_sync_schedule');
 add_action(CONTENT_STUDIO_SYNC_CRON_EVENT, 'content_studio_run_scheduled_sync');
 
 new Content_Studio_REST_Routes();
-new Content_Studio_Engine_Sync();
 new Content_Studio_Admin_Settings();
 new Content_Studio_Latest_Posts_Block();
 new Content_Studio_Blog_Route();
