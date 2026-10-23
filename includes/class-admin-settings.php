@@ -8,6 +8,8 @@ class Content_Studio_Admin_Settings
         add_action('admin_init', [$this, 'register_settings']);
         add_action('admin_post_content_studio_sync', [$this, 'sync_articles']);
         add_action('updated_option', [$this, 'flag_connect_after_key_change']);
+        // Ook bij de eerste keer opslaan, als de opties nog niet bestonden.
+        add_action('added_option', [$this, 'flag_connect_after_key_change']);
         add_action('admin_init', [$this, 'maybe_connect_to_engine'], 20);
         add_action('admin_notices', [$this, 'connection_notice']);
         add_action('admin_post_content_studio_reset_style_settings', [$this, 'reset_style_settings']);
@@ -460,7 +462,7 @@ class Content_Studio_Admin_Settings
             );
         }
 
-        echo '<p class="description">Articles in other languages are synced as drafts: not on the site and not confirmed to Content Studio. With one language the URLs have no language code: /blog/{article}.</p>';
+        echo '<p class="description">Articles in other languages are not synced and not confirmed to Content Studio; they arrive once their language is published. With one language the URLs have no language code: /blog/{article}.</p>';
 
         if (!Content_Studio_Language::is_standalone()) {
             echo '<p class="description">Polylang or WPML decides the language URLs; this setting only decides which articles go live.</p>';
@@ -668,8 +670,8 @@ class Content_Studio_Admin_Settings
         printf(
             '<input type="number" name="%1$s" value="%2$d" min="1" max="%3$d" class="small-text" /> <p class="description">How many articles the blog page shows before it moves to page 2.</p>',
             esc_attr(Content_Studio_Blog_Route::POSTS_PER_PAGE_OPTION),
-            Content_Studio_Blog_Route::posts_per_page(),
-            Content_Studio_Blog_Route::MAX_POSTS_PER_PAGE
+            absint(Content_Studio_Blog_Route::posts_per_page()),
+            absint(Content_Studio_Blog_Route::MAX_POSTS_PER_PAGE)
         );
     }
 
@@ -871,6 +873,11 @@ class Content_Studio_Admin_Settings
             return;
         }
 
+        // Een ander project heeft een eigen volgorde van wijzigingen.
+        if ('content_studio_project_id' === $option) {
+            Content_Studio_Engine_Client::reset_cursor();
+        }
+
         set_transient('content_studio_connect_pending', 1, 5 * MINUTE_IN_SECONDS);
     }
 
@@ -997,6 +1004,13 @@ class Content_Studio_Admin_Settings
          * wat V2 tegenhoudt. Daarom beslist deze ene plek het, en niet elke
          * aanroeper apart.
          */
+        // Een site die zijn sleutels al had voordat de webhook-koppeling er
+        // was, meldt zich hier zelf aan. Lukt het niet, dan blijft het de
+        // oude ophaalronde.
+        if (Content_Studio_Engine_Client::is_configured() && !Content_Studio_Engine_Client::is_connected()) {
+            Content_Studio_Engine_Client::register(Content_Studio_Engine_Sync::webhook_url());
+        }
+
         if (Content_Studio_Engine_Client::is_connected()) {
             $handled = Content_Studio_Engine_Sync::catch_up();
 
@@ -1048,6 +1062,12 @@ class Content_Studio_Admin_Settings
             // krijgt geen bezoek, of DISABLE_WP_CRON staat aan zonder echte cron.
             'cron_overdue' => $next_at && $next_at < time() - 15 * MINUTE_IN_SECONDS,
             'confirmation_error' => (string) get_option('content_studio_last_publish_confirmation_error', ''),
+            'connected' => Content_Studio_Engine_Client::is_connected(),
+            'connect_error' => (string) get_option(Content_Studio_Engine_Client::CONNECT_ERROR_OPTION, ''),
+            'last_webhook_at' => absint(get_option(Content_Studio_Engine_Sync::LAST_WEBHOOK_OPTION, 0)) ?: null,
+            // Nieuwe artikelen komen alleen via de inhaalronde binnen: iets
+            // houdt de webhooks van de Engine tegen.
+            'missed_webhooks' => absint(get_option(Content_Studio_Engine_Sync::MISSED_WEBHOOKS_OPTION, 0)),
         ];
     }
 

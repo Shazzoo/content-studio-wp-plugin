@@ -9,8 +9,6 @@ $value = isset($value) ? $value : Content_Studio_Storage::count_posts();
 $status = Content_Studio_Admin_Settings::sync_status();
 $sync_action_url = admin_url('admin-post.php');
 $sync_action = 'content_studio_sync';
-$sync_nonce = wp_nonce_field($sync_action, '_wpnonce', true, false);
-$sync_button = get_submit_button('Sync Articles', 'secondary content-studio-button content-studio-button--secondary', '', false);
 
 $format_time = static function ($timestamp) {
     $diff = human_time_diff($timestamp, time());
@@ -54,6 +52,18 @@ $format_time = static function ($timestamp) {
                 <?php endif; ?>
             </dd>
 
+            <dt style="color: #646970;">Engine connection</dt>
+            <dd style="margin: 0;">
+                <?php if ($status['connected'] && $status['missed_webhooks'] >= Content_Studio_Engine_Sync::MISSED_WEBHOOKS_WARNING) : ?>
+                    <span style="color: #b26200;"><?php echo esc_html(sprintf('Connected, but Content Studio\'s notifications do not reach this site: the last %d new articles arrived through the 15-minute sync instead. Check whether a security plugin or firewall blocks POST %s.', $status['missed_webhooks'], wp_parse_url(Content_Studio_Engine_Sync::webhook_url(), PHP_URL_PATH))); ?></span>
+                <?php elseif ($status['connected']) : ?>
+                    Connected: Content Studio sends new articles here as soon as they are ready.
+                    <?php echo esc_html(null !== $status['last_webhook_at'] ? sprintf('Last notification received %s.', $format_time($status['last_webhook_at'])) : 'No notification received yet.'); ?>
+                <?php else : ?>
+                    <span style="color: #b26200;"><?php echo esc_html('' !== $status['connect_error'] ? sprintf('Not connected: %s Articles arrive with the sync every 15 minutes.', $status['connect_error']) : 'Not connected yet: articles arrive with the sync every 15 minutes.'); ?></span>
+                <?php endif; ?>
+            </dd>
+
             <?php if ('' !== $status['confirmation_error']) : ?>
                 <dt style="color: #646970;">Publish confirmation</dt>
                 <dd style="margin: 0;">
@@ -65,7 +75,7 @@ $format_time = static function ($timestamp) {
 
     <form action="<?php echo esc_url($sync_action_url); ?>" method="post">
         <input type="hidden" name="action" value="<?php echo esc_attr($sync_action); ?>" />
-        <?php echo $sync_nonce; ?>
-        <?php echo $sync_button; ?>
+        <?php wp_nonce_field($sync_action); ?>
+        <?php submit_button('Sync Articles', 'secondary content-studio-button content-studio-button--secondary', '', false); ?>
     </form>
 </div>

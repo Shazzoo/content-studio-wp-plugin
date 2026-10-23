@@ -22,9 +22,18 @@ class Content_Studio_Storage
      */
     const APPLIED_LOCALES_OPTION = 'content_studio_applied_published_locales';
 
+    /**
+     * Hoe lang een opslag op een andere opslag van hetzelfde artikel wacht,
+     * en na hoeveel seconden een lock als achtergelaten geldt (een verzoek
+     * dat halverwege stierf).
+     */
+    const LOCK_WAIT = 30;
+
+    const LOCK_TTL = 300;
+
     public static function save($content)
     {
-        self::maybe_store_primary_locale($content);
+        self::maybe_store_primary_locale();
 
         $articles = self::extract_articles($content);
         $saved = 0;
@@ -173,6 +182,11 @@ class Content_Studio_Storage
         // First, so a slow run is not started again by the next request.
         update_option(self::APPLIED_LOCALES_OPTION, $key);
 
+        // Articles in a language that was not published were skipped, and a
+        // connected site's catch-up is already past them. Starting it from
+        // the beginning brings in the ones that may now go live.
+        Content_Studio_Engine_Client::reset_cursor();
+
         $post_ids = get_posts([
             'post_type' => content_studio_post_type(),
             // Every language: Polylang otherwise narrows this to the current one.
@@ -257,7 +271,7 @@ class Content_Studio_Storage
      * the contents endpoint yet. This picks it up automatically if that ever
      * changes, from either the payload root or its meta block.
      */
-    private static function maybe_store_primary_locale($content)
+    public static function maybe_store_primary_locale()
     {
         $project = Content_Studio_API_Client::fetch_project(true);
 
@@ -298,7 +312,87 @@ class Content_Studio_Storage
         return array_values($content) === $content ? $content : [];
     }
 
+    /**
+     * Slaat een artikel op, maar nooit twee keer tegelijk hetzelfde. Een
+     * webhook en de inhaalronde, of de cron en de knop, kunnen anders allebei
+     * geen post vinden en er allebei een aanmaken. De tweede wacht op de
+     * eerste en werkt daarna de post bij die die aanmaakte.
+     *
+     * @return int Post-ID, of 0 als het artikel niet opgeslagen kon worden.
+     */
     private static function save_article($external_id, $article)
+    {
+        // Een taal die de site niet publiceert, slaan we niet op, net als de
+        // Laravel-plugin. Onbevestigd blijft het artikel in de Engine staan,
+        // dus komt het vanzelf mee zodra die taal wel live gaat.
+        if (!Content_Studio_Language::is_published_locale($article['locale'] ?? '')) {
+            return 0;
+        }
+
+        $lock = self::lock('article_' . $external_id);
+
+        if ('' === $lock) {
+            return 0;
+        }
+
+        try {
+            return self::write_article($external_id, $article);
+        } finally {
+            self::unlock($lock);
+        }
+    }
+
+    /**
+     * Een lock als rij in wp_options. INSERT IGNORE is atomair: van twee
+     * gelijktijdige verzoeken krijgt er precies één de rij. add_option() kan
+     * dat niet garanderen, die kijkt eerst en schrijft daarna.
+     *
+     * @param string $key
+     *
+     * @return string De naam van de lock, of '' als het wachten te lang duurde.
+     */
+    private static function lock($key)
+    {
+        global $wpdb;
+
+        $name = '_content_studio_lock_' . md5($key);
+        $deadline = time() + self::LOCK_WAIT;
+
+        do {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- een lock moet langs de cache heen.
+            $acquired = $wpdb->query($wpdb->prepare(
+                "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+                $name,
+                (string) time()
+            ));
+
+            if ($acquired) {
+                return $name;
+            }
+
+            // Een lock van een verzoek dat stierf, gaat na LOCK_TTL weg.
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+            $wpdb->query($wpdb->prepare(
+                "DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value < %d",
+                $name,
+                time() - self::LOCK_TTL
+            ));
+
+            usleep(250000);
+        } while (time() < $deadline);
+
+        return '';
+    }
+
+    private static function unlock($name)
+    {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $wpdb->delete($wpdb->options, ['option_name' => $name]);
+    }
+
+    private static function write_article($external_id, $article)
     {
         $image_url = self::get_article_image_url($article);
         $existing = self::get_by_external_id($external_id);
@@ -317,13 +411,11 @@ class Content_Studio_Storage
         // Een eigen post type zonder categorieën krijgt er ook geen.
         $category_id = is_object_in_taxonomy(content_studio_post_type(), 'category') ? self::get_category_id() : 0;
 
-        $language_hidden = !Content_Studio_Language::is_published_locale($article['locale'] ?? '');
-
         $post_data = [
             'post_title' => sanitize_text_field($article['title']),
             'post_content' => wp_kses_post($content),
             'post_excerpt' => sanitize_textarea_field($excerpt),
-            'post_status' => $language_hidden ? 'draft' : self::get_post_status($article),
+            'post_status' => self::get_post_status($article),
             'post_type' => content_studio_post_type(),
         ];
 
@@ -376,11 +468,7 @@ class Content_Studio_Storage
             }
         }
 
-        if ($language_hidden) {
-            update_post_meta($post_id, self::UNPUBLISHED_LANGUAGE_META, 1);
-        } else {
-            delete_post_meta($post_id, self::UNPUBLISHED_LANGUAGE_META);
-        }
+        delete_post_meta($post_id, self::UNPUBLISHED_LANGUAGE_META);
 
         update_post_meta($post_id, '_content_studio_external_id', $external_id);
         update_post_meta($post_id, '_content_studio_image_url', esc_url_raw($image_url));

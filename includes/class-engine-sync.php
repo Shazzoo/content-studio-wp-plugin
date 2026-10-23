@@ -15,6 +15,45 @@
  */
 class Content_Studio_Engine_Sync
 {
+    /** Wanneer de laatste geldige webhook binnenkwam. */
+    const LAST_WEBHOOK_OPTION = 'content_studio_last_webhook_at';
+
+    /**
+     * Hoeveel nieuwe artikelen de inhaalronde op rij binnenhaalde zonder dat
+     * er tussendoor een webhook aankwam.
+     */
+    const MISSED_WEBHOOKS_OPTION = 'content_studio_missed_webhooks';
+
+    /**
+     * Vanaf hoeveel gemiste webhooks op rij de statuskaart waarschuwt. Eén is
+     * nog geen bewijs: de engine kondigt alleen artikelen aan die nog op
+     * approved staan, dus wint de inhaalronde de race, dan komt er voor dat
+     * artikel nooit een webhook.
+     */
+    const MISSED_WEBHOOKS_WARNING = 3;
+
+    /**
+     * Of deze klasse nu opslaat. Hij meldt zelf terug, dus de
+     * publicatiebevestiging hoeft dan niets te doen.
+     *
+     * @var bool
+     */
+    private static $syncing = false;
+
+    public static function is_syncing()
+    {
+        return self::$syncing;
+    }
+
+    /**
+     * Een geldige webhook kwam binnen: niets houdt hem tegen.
+     */
+    public static function record_webhook()
+    {
+        update_option(self::LAST_WEBHOOK_OPTION, time(), false);
+        update_option(self::MISSED_WEBHOOKS_OPTION, 0, false);
+    }
+
     /** Het adres waarop de engine deze site mag bellen. */
     public static function webhook_url()
     {
@@ -41,7 +80,13 @@ class Content_Studio_Engine_Sync
             return false;
         }
 
-        $post_id = Content_Studio_Storage::save_one($item);
+        if (!self::publishes_language($item)) {
+            Content_Studio_Engine_Client::acknowledge($article_id, 'skipped');
+
+            return false;
+        }
+
+        $post_id = self::save($item);
 
         if (!$post_id) {
             Content_Studio_Engine_Client::acknowledge(
@@ -55,12 +100,13 @@ class Content_Studio_Engine_Sync
             return false;
         }
 
-        Content_Studio_Engine_Client::acknowledge(
-            $article_id,
-            $action,
-            (string) $post_id,
-            self::url_for($post_id)
-        );
+        if ('publish' !== get_post_status($post_id)) {
+            Content_Studio_Engine_Client::acknowledge($article_id, 'skipped', (string) $post_id);
+
+            return false;
+        }
+
+        self::acknowledge_live($article_id, $action, $post_id);
 
         return true;
     }
@@ -76,6 +122,9 @@ class Content_Studio_Engine_Sync
      */
     public static function catch_up($max_pages = 20)
     {
+        // Net als de oude ophaalronde: de talen van het project bijhouden.
+        Content_Studio_Storage::maybe_store_primary_locale();
+
         $cursor = Content_Studio_Engine_Client::cursor();
         $handled = 0;
 
@@ -101,10 +150,22 @@ class Content_Studio_Engine_Sync
                     continue;
                 }
 
+                if (!self::publishes_language($item)) {
+                    Content_Studio_Engine_Client::acknowledge((int) $item['id'], 'skipped');
+
+                    continue;
+                }
+
                 $is_new = !Content_Studio_Storage::knows_external_id((string) $item['id']);
-                $post_id = Content_Studio_Storage::save_one($item);
+                $post_id = self::save($item);
 
                 if (!$post_id) {
+                    continue;
+                }
+
+                if ('publish' !== get_post_status($post_id)) {
+                    Content_Studio_Engine_Client::acknowledge((int) $item['id'], 'skipped', (string) $post_id);
+
                     continue;
                 }
 
@@ -113,12 +174,13 @@ class Content_Studio_Engine_Sync
                 // Nieuw hier, of een bestaand artikel bijgewerkt - de engine
                 // hoort het verschil, want alleen bij een eerste publicatie
                 // gebeurt daar nog iets mee.
-                Content_Studio_Engine_Client::acknowledge(
-                    (int) $item['id'],
-                    $is_new ? 'published' : 'updated',
-                    (string) $post_id,
-                    self::url_for($post_id)
-                );
+                self::acknowledge_live((int) $item['id'], $is_new ? 'published' : 'updated', $post_id);
+
+                // Een artikel dat hier pas via de inhaalronde live gaat, had
+                // een webhook moeten krijgen.
+                if ($is_new) {
+                    update_option(self::MISSED_WEBHOOKS_OPTION, absint(get_option(self::MISSED_WEBHOOKS_OPTION, 0)) + 1, false);
+                }
             }
 
             $cursor = $changes['next_cursor'];
@@ -133,6 +195,53 @@ class Content_Studio_Engine_Sync
         }
 
         return $handled;
+    }
+
+    /**
+     * Een taal die de site niet publiceert is overgeslagen, niet mislukt: de
+     * engine schrijft in de talen van het project en deze site toont er soms
+     * minder. Net als in de Laravel-plugin.
+     *
+     * @param array $item
+     *
+     * @return bool
+     */
+    private static function publishes_language($item)
+    {
+        return Content_Studio_Language::is_published_locale(isset($item['locale']) ? (string) $item['locale'] : '');
+    }
+
+    /**
+     * @param array $item
+     *
+     * @return int
+     */
+    private static function save($item)
+    {
+        self::$syncing = true;
+
+        try {
+            return Content_Studio_Storage::save_one($item);
+        } finally {
+            self::$syncing = false;
+        }
+    }
+
+    /**
+     * Meldt een live artikel terug en legt dat op de post vast, zodat een
+     * latere opslag in WordPress het niet nog eens als nieuw meldt.
+     *
+     * @param int    $article_id
+     * @param string $action
+     * @param int    $post_id
+     */
+    private static function acknowledge_live($article_id, $action, $post_id)
+    {
+        $url = self::url_for($post_id);
+
+        if (Content_Studio_Engine_Client::acknowledge($article_id, $action, (string) $post_id, $url)) {
+            Content_Studio_Publish_Confirmation::record_confirmed($post_id, (string) $url);
+        }
     }
 
     /**

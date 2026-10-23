@@ -21,6 +21,7 @@ class Content_Studio_Seo
         add_filter('get_canonical_url', [self::class, 'filter_canonical_url']);
         add_action('wp_head', [self::class, 'output_meta_tags'], 5);
         add_action('wp_head', [self::class, 'output_json_ld'], 6);
+        add_action('wp_head', [self::class, 'output_hreflang'], 7);
 
         add_filter('wpseo_replacements', [self::class, 'filter_yoast_replacements'], 10, 2);
         add_filter('wpseo_frontend_presentation', [self::class, 'filter_yoast_presentation']);
@@ -139,6 +140,91 @@ class Content_Studio_Seo
     }
 
     /**
+     * hreflang-regels voor een artikel en zijn vertalingen, en voor de eerste
+     * pagina van het overzicht in elke taal. Polylang en WPML zetten die zelf,
+     * dus alleen zonder zo'n plugin. Ook met Yoast, want Yoast doet dit niet.
+     *
+     * Dezelfde regels als de Laravel-plugin: de eigen taal staat erbij, alleen
+     * talen die de site publiceert, x-default alleen als er iets te kiezen
+     * valt, en niets vanaf pagina 2 van het overzicht, want een andere taal
+     * heeft daar andere of geen artikelen.
+     */
+    public static function output_hreflang()
+    {
+        foreach (self::hreflang_alternates() as $locale => $url) {
+            printf('<link rel="alternate" hreflang="%1$s" href="%2$s">' . "\n", esc_attr($locale), esc_url($url));
+        }
+    }
+
+    /**
+     * @return array<string,string> taal (of x-default) => URL; leeg als er
+     *                              niets te kiezen valt.
+     */
+    private static function hreflang_alternates()
+    {
+        if (!Content_Studio_Language::is_standalone()) {
+            return [];
+        }
+
+        $published = Content_Studio_Language::published_locales();
+
+        if (count($published) < 2) {
+            return [];
+        }
+
+        $candidates = [];
+        $post_id = self::article_id();
+
+        if ($post_id) {
+            // De eigen taal eerst: die wint als de groep hem ook bevat.
+            $candidates[Content_Studio_Language::for_post($post_id)] = get_permalink($post_id);
+
+            $group = Content_Studio_Language::translation_group(get_post_meta($post_id, '_content_studio_cluster_key', true));
+
+            foreach ($group as $locale => $translation_id) {
+                if (!isset($candidates[$locale]) && 'publish' === get_post_status($translation_id)) {
+                    $candidates[$locale] = get_permalink($translation_id);
+                }
+            }
+        } elseif (Content_Studio_Blog_Route::is_blog_page() && Content_Studio_Blog_Route::current_page() < 2) {
+            $current = Content_Studio_Language::current();
+
+            // Een overzicht van alle talen samen heeft geen eigen taal.
+            if ('all' === $current || !in_array($current, $published, true)) {
+                return [];
+            }
+
+            $candidates[$current] = Content_Studio_Language::blog_url($current);
+
+            foreach ($published as $locale) {
+                if (!isset($candidates[$locale])) {
+                    $candidates[$locale] = Content_Studio_Language::blog_url($locale);
+                }
+            }
+        }
+
+        $alternates = [];
+
+        foreach ($candidates as $locale => $url) {
+            if ('' !== $locale && $url && in_array($locale, $published, true)) {
+                $alternates[$locale] = $url;
+            }
+        }
+
+        if (count($alternates) < 2) {
+            return [];
+        }
+
+        $default = Content_Studio_Language::default_locale();
+
+        if (isset($alternates[$default])) {
+            $alternates['x-default'] = $alternates[$default];
+        }
+
+        return $alternates;
+    }
+
+    /**
      * BlogPosting op een artikel, Blog met een ItemList op de blogpagina.
      * SEO-plugins zetten hun eigen schema neer, dus dit volgt dezelfde
      * schakelaar als de meta tags.
@@ -220,7 +306,7 @@ class Content_Studio_Seo
         $total = (int) Content_Studio_Latest_Posts_Block::get_posts(Content_Studio_Blog_Route::posts_per_page(), $current)->max_num_pages;
         $sep = function_exists('YoastSEO') ? YoastSEO()->helpers->options->get_title_separator() : '-';
 
-        return sprintf($sep . ' ' . __('Page %1$d of %2$d', 'wordpress-seo'), $current, max($current, $total));
+        return sprintf($sep . ' ' . Content_Studio_Strings::get('page_of'), $current, max($current, $total));
     }
 
     public static function filter_yoast_metadesc($value)

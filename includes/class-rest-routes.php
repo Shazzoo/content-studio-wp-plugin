@@ -83,6 +83,8 @@ class Content_Studio_REST_Routes
             return new WP_REST_Response(['ok' => false], 401);
         }
 
+        Content_Studio_Engine_Sync::record_webhook();
+
         $event = (string) ($request->get_param('event') ?: $request->get_header('x-content-studio-event'));
         $article_id = (int) $request->get_param('article_id');
 

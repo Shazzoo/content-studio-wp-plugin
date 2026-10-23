@@ -9,6 +9,11 @@
  * Each confirmation is recorded on the post, so a repeat sync does not fire a
  * request per article every hour. If the permalink changes, the article is
  * confirmed again with the new URL.
+ *
+ * Once the site is connected to the Engine (V2), confirming goes through an
+ * acknowledgement instead of confirm-published. The V2 sync acknowledges its
+ * own articles, so this only covers what happens outside it: an editor
+ * publishing by hand, a language going live, a changed permalink.
  */
 class Content_Studio_Publish_Confirmation
 {
@@ -45,7 +50,7 @@ class Content_Studio_Publish_Confirmation
      *
      * @return bool
      */
-    private static function is_production()
+    public static function is_production()
     {
         if (defined('CONTENT_STUDIO_CONFIRM_PUBLISHED')) {
             return (bool) CONTENT_STUDIO_CONFIRM_PUBLISHED;
@@ -65,21 +70,20 @@ class Content_Studio_Publish_Confirmation
      */
     public static function maybe_confirm($post_id)
     {
-        // Alleen productie bevestigt publicatie bij de Engine. Een lokale of
-        // staging-installatie die naar dezelfde Engine wijst, zou anders echte
-        // content op gepubliceerd zetten en uit de sync laten vallen.
-        if (!self::is_production()) {
+        // De V2-sync meldt zijn eigen artikelen terug, met het post-ID en de
+        // url erbij. Eén kanaal meldt, niet twee.
+        if (Content_Studio_Engine_Sync::is_syncing()) {
             return false;
         }
 
-        /*
-         * Een aangemelde site meldt zijn publicaties langs de V2-weg terug,
-         * met het post-ID en de url erbij. Deze V1-bevestiging zou dan
-         * hetzelfde nog eens zeggen - en omdat de Engine aan de eerste melding
-         * ziet dat het artikel live is, zou de tweede alleen nog een
-         * foutmelding opleveren. Eén kanaal meldt, niet twee.
-         */
-        if (Content_Studio_Engine_Client::is_connected()) {
+        $connected = Content_Studio_Engine_Client::is_connected();
+
+        // Alleen productie bevestigt publicatie bij de Engine. Een lokale of
+        // staging-installatie die naar dezelfde Engine wijst, zou anders echte
+        // content op gepubliceerd zetten en uit de sync laten vallen. Een
+        // aangemelde site is per definitie de site van het project: de Engine
+        // koppelt een project maar aan één website.
+        if (!$connected && !self::is_production()) {
             return false;
         }
 
@@ -112,7 +116,19 @@ class Content_Studio_Publish_Confirmation
             return false;
         }
 
-        $response = Content_Studio_API_Client::confirm_published($content_id, $published_url);
+        // Buiten de sync om (een redacteur publiceert, een taal gaat weer
+        // live, de url verandert) meldt een aangemelde site het ook via V2,
+        // nooit via de V1-bevestiging.
+        if ($connected) {
+            $response = Content_Studio_Engine_Client::acknowledge(
+                $content_id,
+                $confirmed_at ? 'updated' : 'published',
+                (string) $post_id,
+                $published_url
+            ) ? true : new WP_Error('content_studio_api_error', Content_Studio_Engine_Client::last_message());
+        } else {
+            $response = Content_Studio_API_Client::confirm_published($content_id, $published_url);
+        }
 
         // Already published in the Engine: nothing went wrong. The new URL is
         // not recorded as confirmed, so it is sent again on the next save,
@@ -127,14 +143,33 @@ class Content_Studio_Publish_Confirmation
             return false;
         }
 
-        update_option('content_studio_last_publish_confirmation_error', '');
-        update_post_meta($post_id, self::CONFIRMED_AT_META, current_time('mysql'));
-        update_post_meta($post_id, self::CONFIRMED_URL_META, $published_url);
+        self::record_confirmed($post_id, $published_url);
 
         return true;
     }
 
-    private static function get_published_url($post_id)
+    /**
+     * @param int $post_id
+     *
+     * @return bool Whether the Engine was ever told this article is live.
+     */
+    public static function is_confirmed($post_id)
+    {
+        return (bool) get_post_meta($post_id, self::CONFIRMED_AT_META, true);
+    }
+
+    /**
+     * @param int    $post_id
+     * @param string $published_url
+     */
+    public static function record_confirmed($post_id, $published_url)
+    {
+        update_option('content_studio_last_publish_confirmation_error', '');
+        update_post_meta($post_id, self::CONFIRMED_AT_META, current_time('mysql'));
+        update_post_meta($post_id, self::CONFIRMED_URL_META, $published_url);
+    }
+
+    public static function get_published_url($post_id)
     {
         $permalink = get_permalink($post_id);
 

@@ -4,6 +4,8 @@
 * Plugin Name: Content Studio
 * Description: Fetches article content from an external API and stores it locally.
 * Version: 1.1
+* License: GPLv2 or later
+* License URI: https://www.gnu.org/licenses/gpl-2.0.html
 */
 
 if (!defined('ABSPATH')) {
@@ -458,6 +460,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-blog-route.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-publish-confirmation.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-seo.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-tracking.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-author-box.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-hub-articles.php';
 
 register_activation_hook(__FILE__, ['Content_Studio_Blog_Route', 'activate']);
@@ -473,4 +476,6 @@ new Content_Studio_Blog_Route();
 new Content_Studio_Publish_Confirmation();
 new Content_Studio_Seo();
 new Content_Studio_Tracking();
+// Voor de hub-artikelen, zodat de auteur direct onder de tekst staat.
+new Content_Studio_Author_Box();
 new Content_Studio_Hub_Articles();

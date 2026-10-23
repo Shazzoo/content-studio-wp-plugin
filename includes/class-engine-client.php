@@ -16,6 +16,9 @@ class Content_Studio_Engine_Client
 
     const CURSOR_OPTION = 'content_studio_sync_cursor';
 
+    /** Waarom het laatste aanmelden mislukte, voor de statuskaart. */
+    const CONNECT_ERROR_OPTION = 'content_studio_connect_error';
+
     /** @var int|null */
     private static $last_status = null;
 
@@ -53,6 +56,15 @@ class Content_Studio_Engine_Client
         }
     }
 
+    /**
+     * Laat de inhaalronde weer vooraan beginnen: na een ander project, of
+     * nadat een taal live ging waarvan de artikelen eerder zijn overgeslagen.
+     */
+    public static function reset_cursor()
+    {
+        delete_option(self::CURSOR_OPTION);
+    }
+
     public static function last_status()
     {
         return self::$last_status;
@@ -71,13 +83,18 @@ class Content_Studio_Engine_Client
      * het vorige geheim bellen, en die aanroepen moeten hier herkend blijven
      * worden.
      *
+     * Alleen in productie, net als de publicatiebevestiging. De engine koppelt
+     * een project aan één website; een lokale of staging-kopie met dezelfde
+     * sleutels zou die koppeling anders inpikken, en dan kan de echte site
+     * zich niet meer aanmelden.
+     *
      * @param string $webhook_url
      *
      * @return bool
      */
     public static function register($webhook_url)
     {
-        if (!self::is_configured()) {
+        if (!self::is_configured() || !Content_Studio_Publish_Confirmation::is_production()) {
             return false;
         }
 
@@ -91,10 +108,15 @@ class Content_Studio_Engine_Client
         );
 
         if (!is_array($response) || empty($response['secret'])) {
+            update_option(self::CONNECT_ERROR_OPTION, '' !== self::$last_message ? self::$last_message : 'De engine gaf geen geheim terug.');
+
             return false;
         }
 
         update_option(self::SECRET_OPTION, (string) $response['secret']);
+        update_option(self::CONNECT_ERROR_OPTION, '');
+        // Een nieuwe koppeling begint met een schone lei.
+        update_option(Content_Studio_Engine_Sync::MISSED_WEBHOOKS_OPTION, 0, false);
 
         return true;
     }
