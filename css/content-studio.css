@@ -150,8 +150,9 @@
 .content-studio-blog__grid {
   display: grid;
   gap: var(--_content-studio-grid-gap);
+  /* auto-fill houdt lege kolommen aan, zodat één artikel niet de hele breedte pakt. */
   grid-template-columns: repeat(
-    auto-fit,
+    auto-fill,
     minmax(min(100%, var(--_content-studio-grid-min-column-width)), 1fr)
   );
 }
@@ -219,6 +220,15 @@ a.content-studio-pagination__link:focus {
   height: 100%;
   object-fit: cover;
   transition: transform var(--_content-studio-transition);
+}
+
+/*
+ * Het vak bepaalt de hoogte. Thema's als Hello Elementor geven
+ * .post .wp-post-image een max-height en laden na deze stylesheet,
+ * vandaar de extra specificiteit.
+ */
+.content-studio-blog .content-studio-blog__image-link .content-studio-blog__image {
+  max-height: none;
 }
 
 .content-studio-blog__article:hover .content-studio-blog__image,

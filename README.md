@@ -68,7 +68,9 @@ languages or the post type change and the page is missing.
 - Rename the page or add text around the shortcode freely: the plugin never
   changes the title or content afterwards. The title shows in the browser tab
   and in search results; the heading above the article list comes from the
-  plugin and follows the language ("Artikelen", "Articles").
+  plugin and follows the language ("Artikelen", "Articles"). If the theme
+  already shows the page title above it, use
+  `[content_studio_blog show_title="no"]` to leave the plugin's heading out.
 - With Polylang every published language has its own overview page (see
   [Languages](#languages)).
 
@@ -381,7 +383,7 @@ WPML has not been tested. It uses one overview page.
 
 | | |
 |---|---|
-| `[content_studio_blog]` | The paginated overview. Used on the overview page |
+| `[content_studio_blog]` | The paginated overview. Used on the overview page. `show_title="no"` leaves out the heading above the list, for themes that already show the page title |
 | `[content_studio_language_switcher]` | Links to the overview in each published language. Renders the Polylang or WPML switcher when one of those is active |
 | **Content Studio Latest Posts** block | The newest articles in the default language anywhere on a page. Settings: number of posts (max 12), title, excerpt, meta, image |
 

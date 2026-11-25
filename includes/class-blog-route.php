@@ -779,8 +779,16 @@ class Content_Studio_Blog_Route
         return ob_get_clean();
     }
 
-    public function render_blog()
+    /**
+     * @param array|string $atts show_title="no" laat de kop boven de lijst
+     *                           weg, voor een thema dat de paginatitel al toont.
+     *
+     * @return string
+     */
+    public function render_blog($atts = [])
     {
+        $atts = shortcode_atts(['show_title' => 'yes'], $atts, 'content_studio_blog');
+
         $custom_styles = content_studio_get_custom_style_css();
         $style_tag = $custom_styles ? '<style id="content-studio-blog-custom-styles">' . $custom_styles . '</style>' : '';
 
@@ -789,7 +797,7 @@ class Content_Studio_Blog_Route
 
         return $style_tag . Content_Studio_Latest_Posts_Block::render_list(
             [
-                'showTitle' => true,
+                'showTitle' => filter_var($atts['show_title'], FILTER_VALIDATE_BOOLEAN),
                 'title' => Content_Studio_Strings::get('blog_title'),
                 'showExcerpt' => true,
                 'showMeta' => true,
