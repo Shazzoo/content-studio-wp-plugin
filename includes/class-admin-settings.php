@@ -130,6 +130,18 @@ class Content_Studio_Admin_Settings
             ]
         );
 
+        register_setting(
+            'content_studio_settings',
+            Content_Studio_Featured_Image::OPTION,
+            [
+                'type' => 'boolean',
+                'sanitize_callback' => static function ($value) {
+                    return !empty($value) ? 1 : 0;
+                },
+                'default' => 0,
+            ]
+        );
+
         foreach (content_studio_get_style_color_settings() as $option_name => $setting) {
             register_setting(
                 'content_studio_settings',
@@ -214,6 +226,14 @@ class Content_Studio_Admin_Settings
             'content_studio_fallback_author_id',
             'Fallback Author',
             [$this, 'render_fallback_author_field'],
+            'content-studio',
+            'content_studio_blog_section'
+        );
+
+        add_settings_field(
+            Content_Studio_Featured_Image::OPTION,
+            'Featured Image',
+            [$this, 'render_featured_image_field'],
             'content-studio',
             'content_studio_blog_section'
         );
@@ -693,6 +713,17 @@ class Content_Studio_Admin_Settings
         ]);
 
         echo '<p class="description">Used when an article from the API does not include an author.</p>';
+    }
+
+    public function render_featured_image_field()
+    {
+        printf(
+            '<label><input type="hidden" name="%1$s" value="0" /><input type="checkbox" name="%1$s" value="1"%2$s /> Show the featured image above the article</label>',
+            esc_attr(Content_Studio_Featured_Image::OPTION),
+            checked(Content_Studio_Featured_Image::enabled(), true, false)
+        );
+
+        echo '<p class="description">Turn this on when the theme does not show the featured image on article pages, such as Hello Elementor. With a theme that does, the image would appear twice.</p>';
     }
 
     public function render_api_section()

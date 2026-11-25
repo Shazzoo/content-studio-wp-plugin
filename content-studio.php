@@ -95,7 +95,8 @@ function content_studio_get_custom_style_css()
         }
     }
 
-    $css = $variables ? '.content-studio-blog {' . implode('', $variables) . '}' : '';
+    // Ook voor pull-quotes, die in de tekst van een artikel staan en niet in de blog.
+    $css = $variables ? '.content-studio-blog, .pull-quote {' . implode('', $variables) . '}' : '';
 
     $css .= '.content-studio-blog .content-studio-blog__article:hover .content-studio-blog__article-link,';
     $css .= '.content-studio-blog .content-studio-blog__article:focus-within .content-studio-blog__article-link,';
@@ -112,7 +113,7 @@ function content_studio_get_style_color_settings()
     return [
         'content_studio_color_primary_hover' => [
             'label' => 'Primary Color',
-            'description' => 'Used when article titles are hovered.',
+            'description' => 'Used when article titles are hovered, and for the accent of pull-quotes.',
             'css_variable' => '--content-studio-color-primary-hover',
             'default' => '#ec8f39',
         ],
@@ -440,7 +441,10 @@ function content_studio_run_scheduled_sync()
     Content_Studio_Admin_Settings::run_sync();
 }
 
-add_action('wp_enqueue_scripts', 'content_studio_enqueue_styles');
+// Niet rechtstreeks: WordPress geeft dan '' mee en vallen de stijlinstellingen weg.
+add_action('wp_enqueue_scripts', static function () {
+    content_studio_enqueue_styles();
+});
 add_action('admin_enqueue_scripts', 'content_studio_enqueue_admin_styles');
 add_filter('cron_schedules', 'content_studio_register_cron_interval');
 add_action('init', 'content_studio_schedule_sync');
@@ -462,6 +466,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-seo.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-tracking.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-author-box.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-hub-articles.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-featured-image.php';
 
 register_activation_hook(__FILE__, ['Content_Studio_Blog_Route', 'activate']);
 register_activation_hook(__FILE__, 'content_studio_schedule_sync');
@@ -479,6 +484,7 @@ new Content_Studio_Tracking();
 // Voor de hub-artikelen, zodat de auteur direct onder de tekst staat.
 new Content_Studio_Author_Box();
 new Content_Studio_Hub_Articles();
+new Content_Studio_Featured_Image();
 
 if (defined('WP_CLI') && WP_CLI) {
     require_once plugin_dir_path(__FILE__) . 'includes/class-cli.php';

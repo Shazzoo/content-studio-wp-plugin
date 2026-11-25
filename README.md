@@ -39,6 +39,7 @@ four groups.
 | Articles per Page | Articles on the overview before it paginates (1–48, default 10) |
 | Article Category | Category for synced articles. Empty uses `Artikelen` on a Dutch site, `Articles` otherwise |
 | Fallback Author | WordPress user for articles that arrive without an author |
+| Featured Image | Show the featured image above the article text. Off by default; turn it on for themes that do not show it on single posts, such as Hello Elementor |
 | **Language Settings** | |
 | Published Languages | Which of the project's languages go live. Default: only the main language. See [Languages](#languages) |
 | Default Language | The language `/blog` and the Latest Posts block show. The main language is preselected |
@@ -406,8 +407,9 @@ least an introduction or a note. The heading follows the article's language.
 Override `author-box.php` to change it.
 
 The Engine marks quotes in the body as `<aside class="pull-quote">`. The
-plugin styles them with an accent border and a tinted background. Change the
-colours from the theme with `--content-studio-pull-quote-accent`,
+plugin styles them with an accent border and a tinted background, both in the
+**Primary Color** from the style settings. Change the colours from the theme
+with `--content-studio-pull-quote-accent`,
 `--content-studio-pull-quote-background` and `--content-studio-pull-quote-text`,
 or style `.pull-quote` yourself. The colours only switch to dark when the theme
 uses a `.dark` class or `data-theme="dark"`.

@@ -754,10 +754,11 @@ body.settings_page_content-studio .button:not(.content-studio-button):active {
 }
 
 /* Pull-quotes die de Engine als <aside class="pull-quote"> in de tekst zet.
-   Kleuren zijn te overschrijven met de custom properties hieronder. */
+   Het accent volgt de Primary Color uit de instellingen; kleuren zijn te
+   overschrijven met de custom properties hieronder. */
 .pull-quote {
-    --_content-studio-pull-quote-accent: var(--content-studio-pull-quote-accent, #f59e0b);
-    --_content-studio-pull-quote-background: var(--content-studio-pull-quote-background, rgb(245 158 11 / 0.06));
+    --_content-studio-pull-quote-accent: var(--content-studio-pull-quote-accent, var(--_content-studio-color-primary-hover));
+    --_content-studio-pull-quote-background: var(--content-studio-pull-quote-background, color-mix(in srgb, var(--_content-studio-pull-quote-accent) 6%, transparent));
     --_content-studio-pull-quote-text: var(--content-studio-pull-quote-text, #0f172a);
     position: relative;
     /* Alleen verticaal: het thema centreert content met margin-inline. */
@@ -803,8 +804,20 @@ body.settings_page_content-studio .button:not(.content-studio-button):active {
    zijn. */
 .dark .pull-quote,
 [data-theme='dark'] .pull-quote {
-    --_content-studio-pull-quote-background: var(--content-studio-pull-quote-background, rgb(245 158 11 / 0.12));
+    --_content-studio-pull-quote-background: var(--content-studio-pull-quote-background, color-mix(in srgb, var(--_content-studio-pull-quote-accent) 12%, transparent));
     --_content-studio-pull-quote-text: var(--content-studio-pull-quote-text, #ffffff);
+}
+
+/* Uitgelichte afbeelding boven een artikel, als die instelling aan staat. */
+.content-studio-featured-image {
+    margin: 0 0 2rem;
+}
+
+.content-studio-featured-image__image {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: var(--_content-studio-image-border-radius);
 }
 
 /* Over de auteur, onder een artikel. */
