@@ -3,7 +3,7 @@ Tags: content, articles, seo, blog
 Requires at least: 5.6
 Tested up to: 7.1
 Requires PHP: 7.0
-Stable tag: 1.1.1
+Stable tag: 1.1.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -26,6 +26,11 @@ This plugin connects to the Content Studio Engine at engine.content-studio.com, 
 * Tracking: on article pages, the visitor's browser reports page views and link clicks to the Engine. Turn this off with the CONTENT_STUDIO_TRACKING_ENABLED constant.
 
 == Changelog ==
+
+= 1.1.2 =
+* New setting to show the featured image above articles, for themes like Hello Elementor that leave it out.
+* Pull-quotes use the Primary Color from the style settings.
+* The style settings now apply on every page, not only on the blog page.
 
 = 1.1.1 =
 * The blog shortcode takes show_title="no" to leave out its heading.
